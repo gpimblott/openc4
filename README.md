@@ -25,7 +25,7 @@ Modern software engineering requires architecture diagrams that are versionable,
 ```mermaid
 flowchart TB
     subgraph Clients["Clients & Tools"]
-        CLI["structurizr-cli / CI/CD"]
+        CLI["OpenC4 CLI / CI/CD"]
         AI["AI Assistants (via MCP)"]
         Browser["Modern Web Studio (Browser)"]
     end
@@ -33,7 +33,7 @@ flowchart TB
     subgraph Server["OpenC4 (TypeScript: Hono + React)"]
         direction TB
         subgraph Gateway["API Protocols"]
-            REST["Structurizr REST API (/api/workspace/*)"]
+            REST["OpenC4 REST API (/api/workspace/*)"]
             MCP["Model Context Protocol (/mcp)"]
             StudioAPI["Web Studio API (/api/*)"]
         end
