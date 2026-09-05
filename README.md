@@ -142,3 +142,10 @@ To run the automated test suite:
 ```bash
 npm --prefix backend test
 ```
+
+---
+
+## License
+
+OpenC4 is open-source software licensed under the [MIT License](LICENSE).
+
