@@ -1,0 +1,93 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+/* Custom scrollbar for modern studio */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* React Flow Controls styling for dark theme */
+.react-flow__controls {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  border-radius: 0.75rem !important;
+  overflow: hidden !important;
+  border: 1px solid #334155 !important;
+}
+
+.react-flow__controls-button {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #1e293b !important;
+  color: #94a3b8 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #1e293b !important;
+  color: #38bdf8 !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+}
+
+/* Edge, arrow marker & label styling for C4 diagrams */
+.react-flow__edge-path {
+  stroke-linecap: round;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path,
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #38bdf8 !important;
+  stroke-width: 2.5px !important;
+}
+
+.react-flow__edge-textbg {
+  fill: #090d16 !important;
+  fill-opacity: 0.92 !important;
+  rx: 4px;
+  ry: 4px;
+}
+
+.react-flow__edge-text {
+  fill: #cbd5e1 !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+.react-flow__edge:hover .react-flow__edge-text,
+.react-flow__edge.selected .react-flow__edge-text {
+  fill: #38bdf8 !important;
+  font-weight: 600 !important;
+}
+
+
