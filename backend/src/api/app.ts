@@ -189,7 +189,9 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     const body = await c.req.json().catch(() => ({}));
     const name = body.name || 'Untitled Workspace';
     const description = body.description || '';
-    const dsl = body.dsl || `workspace "${name}" "${description}" {\n    model {\n    }\n    views {{\n    }\n}`;
+    const dsl =
+      body.dsl ||
+      `workspace "${name}" "${description}" {\n    model {\n        user = person "User" "A user of the system."\n        system = softwareSystem "${name}" "${description || 'Software system architecture.'}"\n        user -> system "Uses"\n    }\n    views {\n        systemContext system "SystemContext" {\n            include *\n            autoLayout lr\n        }\n    }\n}`;
 
     const ws = repo.createWorkspace(name, description, dsl);
     try {
@@ -216,8 +218,17 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     let canvasData: any = null;
     let findings: any[] = [];
 
+    let currentName = ws.name;
+    let currentDesc = ws.description;
+
     try {
       const parsed = parseDsl(dsl);
+      if (parsed.name && parsed.name !== ws.name) {
+        currentName = parsed.name;
+        currentDesc = parsed.description || ws.description;
+        repo.updateWorkspace(workspaceId, { name: currentName, description: currentDesc });
+      }
+
       const layoutCache = ws.layoutCache || {};
       for (const v of parsed.views) {
         if (layoutCache[v.key]) {
@@ -240,8 +251,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({
       workspace: {
         id: ws.id,
-        name: ws.name,
-        description: ws.description,
+        name: currentName,
+        description: currentDesc,
         version: ws.version,
         state: ws.state,
         apiKey: ws.apiKey,
@@ -279,6 +290,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
         success: true,
         canvas: canvasData,
         findings,
+        workspaceName: parsed.name,
+        workspaceDescription: parsed.description,
         parseError: null
       });
     } catch (pe: any) {
@@ -346,9 +359,13 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
 
     let jsonData = ws.jsonCache;
+    let wsName = body.name || ws.name;
+    let wsDesc = body.description || ws.description;
     try {
       const parsed = parseDsl(body.dsl);
       jsonData = workspaceToStructurizrJson(parsed);
+      if (parsed.name) wsName = parsed.name;
+      if (parsed.description) wsDesc = parsed.description;
     } catch {
       // ignore
     }
@@ -357,8 +374,9 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       dslSource: body.dsl,
       jsonCache: jsonData,
       layoutCache,
-      name: body.name,
-      description: body.description
+      name: wsName,
+      description: wsDesc,
+      state: body.state !== undefined ? body.state : 'DRAFT'
     });
 
     return c.json({ success: true, workspace: updated });
@@ -366,8 +384,32 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
 
   app.post('/api/workspaces/:id/publish', async (c) => {
     const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
     const body = await c.req.json();
     try {
+      if (body.dsl) {
+        let jsonData = ws.jsonCache;
+        let wsName = ws.name;
+        let wsDesc = ws.description;
+        try {
+          const parsed = parseDsl(body.dsl);
+          jsonData = workspaceToStructurizrJson(parsed);
+          if (parsed.name) wsName = parsed.name;
+          if (parsed.description) wsDesc = parsed.description;
+        } catch {
+          // ignore
+        }
+        repo.updateWorkspace(workspaceId, {
+          dslSource: body.dsl,
+          jsonCache: jsonData,
+          name: wsName,
+          description: wsDesc,
+          state: 'PUBLISHED'
+        });
+      }
       const result = repo.publishWorkspaceVersion(workspaceId, body.version, body.commitMessage || '');
       return c.json({ success: true, published: result });
     } catch (err: any) {
@@ -380,6 +422,26 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json(repo.listVersions(workspaceId));
   });
 
+  app.get('/api/workspaces/:id/versions/:version', (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const version = c.req.param('version');
+    const snap = repo.getVersionSnapshot(workspaceId, version);
+    if (!snap) {
+      return c.json({ detail: `Version ${version} not found` }, 404);
+    }
+    return c.json(snap);
+  });
+
+  app.post('/api/workspaces/:id/versions/:version/load', (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const version = c.req.param('version');
+    const updated = repo.restoreWorkspaceVersion(workspaceId, version);
+    if (!updated) {
+      return c.json({ detail: `Version ${version} not found` }, 404);
+    }
+    return c.json({ success: true, workspace: updated });
+  });
+
   app.get('/api/workspaces/:id/diff', (c) => {
     const workspaceId = parseInt(c.req.param('id'), 10);
     const ws = repo.getWorkspace(workspaceId);
@@ -387,23 +449,54 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       return c.json({ detail: 'Workspace not found' }, 404);
     }
 
+    const versions = repo.listVersions(workspaceId);
+    const latestPublished = versions.length > 0 ? versions[0].version : null;
+
     const v1 = c.req.query('v1');
     const v2 = c.req.query('v2');
 
     let oldJson = {};
-    let newJson = ws.jsonCache;
+    let baseLabel = '';
 
     if (v1) {
       const snap1 = repo.getVersionSnapshot(workspaceId, v1);
-      if (snap1) oldJson = snap1.jsonCache;
+      if (snap1) {
+        oldJson = snap1.jsonCache;
+        baseLabel = `v${v1}`;
+      } else {
+        baseLabel = v1;
+      }
+    } else if (latestPublished) {
+      const snap1 = repo.getVersionSnapshot(workspaceId, latestPublished);
+      if (snap1) {
+        oldJson = snap1.jsonCache;
+        baseLabel = `Published (v${latestPublished})`;
+      }
     }
+
+    let newJson = ws.jsonCache;
+    let targetLabel = ws.state === 'PUBLISHED' ? `Published (v${ws.version})` : `Current Draft`;
+
     if (v2) {
-      const snap2 = repo.getVersionSnapshot(workspaceId, v2);
-      if (snap2) newJson = snap2.jsonCache;
+      if (v2 === 'current' || v2 === 'draft') {
+        newJson = ws.jsonCache;
+        targetLabel = ws.state === 'PUBLISHED' ? `Published (v${ws.version})` : `Current Draft`;
+      } else {
+        const snap2 = repo.getVersionSnapshot(workspaceId, v2);
+        if (snap2) {
+          newJson = snap2.jsonCache;
+          targetLabel = `v${v2}`;
+        }
+      }
     }
 
     const diffResult = diffWorkspaces(oldJson, newJson);
-    return c.json(diffResult);
+    return c.json({
+      ...diffResult,
+      baseVersion: baseLabel || 'Initial',
+      targetVersion: targetLabel,
+      availableVersions: versions.map((v) => v.version)
+    });
   });
 
   app.get('/api/workspaces/:id/export', (c) => {

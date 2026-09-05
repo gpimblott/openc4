@@ -18,6 +18,8 @@ interface Props {
   diff: DiffData | null;
   baseVersion: string;
   targetVersion: string;
+  availableVersions?: string[];
+  onVersionChange?: (v1: string, v2: string) => void;
 }
 
 export const VisualDiffModal: React.FC<Props> = ({
@@ -26,6 +28,8 @@ export const VisualDiffModal: React.FC<Props> = ({
   diff,
   baseVersion,
   targetVersion,
+  availableVersions = [],
+  onVersionChange,
 }) => {
   if (!isOpen) return null;
 
@@ -40,10 +44,43 @@ export const VisualDiffModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Visual Architecture Diff</h2>
-              <p className="text-xs text-slate-400">
-                Comparing <span className="text-purple-300 font-mono">{baseVersion}</span> with{' '}
-                <span className="text-purple-300 font-mono">{targetVersion}</span>
-              </p>
+              {onVersionChange && availableVersions.length > 0 ? (
+                <div className="flex items-center gap-2 mt-1 text-xs text-slate-400 flex-wrap">
+                  <span>Base:</span>
+                  <select
+                    value={baseVersion.replace(/^Published \(v|\)$|^v/g, '')}
+                    onChange={(e) => onVersionChange(e.target.value, targetVersion.includes('Draft') ? 'draft' : targetVersion.replace(/^Published \(v|\)$|^v/g, ''))}
+                    className="bg-slate-800 border border-slate-700 text-purple-300 font-mono text-[11px] rounded px-2 py-0.5 focus:outline-none"
+                  >
+                    {availableVersions.map((ver) => (
+                      <option key={ver} value={ver}>
+                        v{ver}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span className="text-slate-500">vs</span>
+
+                  <span>Target:</span>
+                  <select
+                    value={targetVersion.includes('Draft') ? 'draft' : targetVersion.replace(/^Published \(v|\)$|^v/g, '')}
+                    onChange={(e) => onVersionChange(baseVersion.replace(/^Published \(v|\)$|^v/g, ''), e.target.value)}
+                    className="bg-slate-800 border border-slate-700 text-purple-300 font-mono text-[11px] rounded px-2 py-0.5 focus:outline-none"
+                  >
+                    <option value="draft">Current Workspace</option>
+                    {availableVersions.map((ver) => (
+                      <option key={ver} value={ver}>
+                        v{ver}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  Comparing <span className="text-purple-300 font-mono">{baseVersion}</span> with{' '}
+                  <span className="text-purple-300 font-mono">{targetVersion}</span>
+                </p>
+              )}
             </div>
           </div>
           <button

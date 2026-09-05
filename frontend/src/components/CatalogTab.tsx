@@ -23,6 +23,7 @@ export const CatalogTab: React.FC<Props> = ({ catalog, onRefresh, onInsertDsl })
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [insertedId, setInsertedId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showLatestOnly, setShowLatestOnly] = useState(false);
 
   const filtered = catalog.filter((item) =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -34,9 +35,20 @@ export const CatalogTab: React.FC<Props> = ({ catalog, onRefresh, onInsertDsl })
     ))
   );
 
+  const displayedItems = showLatestOnly
+    ? Object.values(
+        filtered.reduce((acc: Record<string, CatalogItem>, item) => {
+          if (!acc[item.name] || new Date(item.updatedAt) > new Date(acc[item.name].updatedAt)) {
+            acc[item.name] = item;
+          }
+          return acc;
+        }, {})
+      )
+    : filtered;
+
   const generateSnippet = (item: CatalogItem) => {
     const ident = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-    return `${ident} = softwareSystem "${item.name}" "${item.description || ''}" "${item.tags || 'External System'}"`;
+    return `${ident} = softwareSystem "${item.name}" "${item.description || ''}" "${item.tags || 'External System'}" // v${item.version}`;
   };
 
   const handleCopy = (item: CatalogItem) => {
@@ -95,18 +107,32 @@ export const CatalogTab: React.FC<Props> = ({ catalog, onRefresh, onInsertDsl })
       <div className="px-3 py-1.5 bg-slate-900/20 border-b border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
         <span className="flex items-center gap-1.5">
           <Layers className="w-3 h-3 text-blue-400" />
-          <span>{catalog.length} published enterprise system{catalog.length === 1 ? '' : 's'}</span>
+          <span>{displayedItems.length} published item{displayedItems.length === 1 ? '' : 's'}</span>
         </span>
-        {searchTerm && (
-          <span className="text-slate-500">
-            {filtered.length} match{filtered.length === 1 ? '' : 'es'}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {catalog.length > 0 && (
+            <button
+              onClick={() => setShowLatestOnly(!showLatestOnly)}
+              className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition cursor-pointer ${
+                showLatestOnly
+                  ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              {showLatestOnly ? 'Latest Only' : 'All Versions'}
+            </button>
+          )}
+          {searchTerm && (
+            <span className="text-slate-500">
+              {displayedItems.length} match{displayedItems.length === 1 ? '' : 'es'}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Catalog Cards List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {filtered.length === 0 ? (
+        {displayedItems.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <Server className="w-10 h-10 mx-auto mb-2 opacity-30" />
             <p className="font-semibold text-xs text-slate-400">
@@ -119,7 +145,7 @@ export const CatalogTab: React.FC<Props> = ({ catalog, onRefresh, onInsertDsl })
             </p>
           </div>
         ) : (
-          filtered.map((item) => (
+          displayedItems.map((item) => (
             <div
               key={item.id}
               className="bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 transition flex flex-col gap-2.5 shadow-sm"

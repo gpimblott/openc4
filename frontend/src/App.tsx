@@ -27,6 +27,9 @@ import {
   Eye,
   FileCode,
   Trash2,
+  ChevronDown,
+  History,
+  Plus,
 } from 'lucide-react';
 
 import C4Node from './components/C4Node';
@@ -98,6 +101,11 @@ export function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Version management states
+  const [versions, setVersions] = useState<Array<{ id: number; version: string; publishedAt: string; commitMessage: string }>>([]);
+  const [selectedVersion, setSelectedVersion] = useState<string>('current');
+  const [isVersionDropdownOpen, setIsVersionDropdownOpen] = useState<boolean>(false);
 
   // Deletion confirmation states
   const [pendingDeleteNodes, setPendingDeleteNodes] = useState<Node[]>([]);
@@ -196,6 +204,9 @@ export function App() {
         setDslCode(data.dsl);
         setParseError(data.parseError);
         setFindings(data.findings || []);
+        if (data.versions) {
+          setVersions(data.versions);
+        }
 
         if (data.canvas) {
           const rawNodes = data.canvas.nodes || [];
@@ -229,6 +240,10 @@ export function App() {
   const handleEditorChange = (value: string | undefined) => {
     const newCode = value || '';
     setDslCode(newCode);
+    setWorkspaceInfo((prev: any) => prev ? { ...prev, state: 'DRAFT' } : prev);
+    if (selectedVersion !== 'current') {
+      setSelectedVersion('current');
+    }
 
     if (compileTimerRef.current) {
       clearTimeout(compileTimerRef.current);
@@ -251,6 +266,12 @@ export function App() {
             setEdges(updatedEdges);
             setFindings(resData.findings || []);
             setAvailableViews(resData.canvas.availableViews || []);
+            if (resData.workspaceName) {
+              setWorkspaceInfo((prev: any) => (prev ? { ...prev, name: resData.workspaceName } : prev));
+              setWorkspaces((prev) =>
+                prev.map((w) => (w.id === currentWorkspaceId ? { ...w, name: resData.workspaceName } : w))
+              );
+            }
           } else if (resData.parseError) {
             setParseError(resData.parseError);
           }
@@ -277,12 +298,17 @@ export function App() {
       body: JSON.stringify({
         dsl: dslCode,
         layoutCoordinates: layoutCoords,
+        state: 'DRAFT',
       }),
     })
       .then((res) => res.json())
-      .then(() => {
+      .then((data) => {
         setIsSaving(false);
         setSaveSuccess(true);
+        if (data.workspace) {
+          setWorkspaceInfo(data.workspace);
+        }
+        loadWorkspaces();
         setTimeout(() => setSaveSuccess(false), 2000);
       })
       .catch((err) => {
@@ -470,35 +496,152 @@ export function App() {
     setLeftPanelTab('dsl');
   };
 
+  // Version calculation helper
+  const incrementPatchVersion = (ver?: string): string => {
+    if (!ver) return '1.1.0';
+    const parts = ver.split('.');
+    if (parts.length === 3 && !isNaN(Number(parts[2]))) {
+      return `${parts[0]}.${parts[1]}.${Number(parts[2]) + 1}`;
+    }
+    if (parts.length === 2 && !isNaN(Number(parts[1]))) {
+      return `${parts[0]}.${Number(parts[1]) + 1}.0`;
+    }
+    return `${ver}.1`;
+  };
+
+  // Load a historical version snapshot into editor
+  const handleLoadVersion = (version: string) => {
+    if (version === 'current') {
+      setSelectedVersion('current');
+      loadStudioData(currentWorkspaceId);
+      return;
+    }
+
+    fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}`)
+      .then((res) => res.json())
+      .then((snap) => {
+        if (snap.dslSource) {
+          setSelectedVersion(version);
+          setDslCode(snap.dslSource);
+          setWorkspaceInfo((prev: any) => ({
+            ...prev,
+            version: version,
+            state: 'PUBLISHED',
+          }));
+          fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dsl: snap.dslSource, viewKey: currentViewKey }),
+          })
+            .then((cRes) => cRes.json())
+            .then((resData) => {
+              if (resData.success && resData.canvas) {
+                const rawNodes = resData.canvas.nodes || [];
+                const rawEdges = resData.canvas.edges || [];
+                setNodes(rawNodes);
+                setEdges(updateEdgesClosestHandles(rawNodes, rawEdges));
+                setFindings(resData.findings || []);
+              }
+            });
+        }
+      })
+      .catch((err) => console.error('Failed to load version snapshot', err));
+  };
+
+  // Restore past version as active workspace model
+  const handleRestoreVersion = (version: string) => {
+    if (!confirm(`Are you sure you want to restore workspace to version ${version}? This will replace the active workspace DSL.`)) {
+      return;
+    }
+
+    fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}/load`, {
+      method: 'POST',
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          alert(`Restored workspace to version ${version}`);
+          setSelectedVersion('current');
+          loadStudioData(currentWorkspaceId);
+          loadWorkspaces();
+        } else {
+          alert(`Failed to restore: ${data.detail || 'Unknown error'}`);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to restore version', err);
+        alert(`Restore error: ${err.message}`);
+      });
+  };
+
   // Open Visual Diff
-  const handleOpenDiff = () => {
-    fetch(`/api/workspaces/${currentWorkspaceId}/diff`)
+  const handleOpenDiff = (v1?: string, v2?: string) => {
+    const params = new URLSearchParams();
+    if (v1) params.append('v1', v1);
+    if (v2) params.append('v2', v2);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    fetch(`/api/workspaces/${currentWorkspaceId}/diff${qs}`)
       .then((res) => res.json())
       .then((data) => {
         setDiffData(data);
         setIsDiffOpen(true);
-      });
+      })
+      .catch((err) => console.error('Diff error', err));
   };
 
   // Publish workspace
   const handlePublish = () => {
-    const ver = prompt('Enter release version (e.g. 1.1.0):', '1.1.0');
+    const suggested = incrementPatchVersion(workspaceInfo?.version);
+    const ver = prompt(`Enter release version (current is v${workspaceInfo?.version || '1.0.0'}):`, suggested);
     if (!ver) return;
     const msg = prompt('Enter publish release notes:', 'Updated architecture components') || '';
 
     fetch(`/api/workspaces/${currentWorkspaceId}/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: ver, commitMessage: msg }),
+      body: JSON.stringify({ version: ver, commitMessage: msg, dsl: dslCode }),
     })
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
           alert(`Workspace published as v${ver} and systems registered to Enterprise Catalog!`);
+          setSelectedVersion('current');
           loadStudioData(currentWorkspaceId);
           loadWorkspaces();
           loadCatalog();
+        } else {
+          alert(`Publish failed: ${data.detail || 'Unknown error'}`);
         }
+      })
+      .catch((err) => {
+        console.error('Publish error', err);
+        alert(`Publish error: ${err.message}`);
+      });
+  };
+
+  // Create a new architecture workspace
+  const handleCreateWorkspace = () => {
+    const name = prompt('Enter new workspace name:', 'New Architecture Workspace');
+    if (!name) return;
+    const desc = prompt('Enter workspace description (optional):', 'Architecture model') || '';
+
+    fetch('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: desc }),
+    })
+      .then((res) => res.json())
+      .then((newWs) => {
+        if (newWs && newWs.id) {
+          loadWorkspaces();
+          setCurrentWorkspaceId(newWs.id);
+          setSelectedVersion('current');
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to create workspace', err);
+        alert(`Failed to create workspace: ${err.message}`);
       });
   };
 
@@ -517,34 +660,155 @@ export function App() {
 
           <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 
-          {/* Workspace Selector */}
-          <select
-            value={currentWorkspaceId}
-            onChange={(e) => setCurrentWorkspaceId(Number(e.target.value))}
-            className="bg-slate-800 border border-slate-700 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-cyan-500 max-w-[130px] sm:max-w-[180px] md:max-w-[220px] truncate shrink-0"
-          >
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id} className="bg-slate-900">
-                {w.name} (v{w.version})
-              </option>
-            ))}
-          </select>
+          {/* Workspace Selector & New Button */}
+          <div className="flex items-center gap-1 shrink-0">
+            <select
+              value={currentWorkspaceId}
+              onChange={(e) => {
+                setCurrentWorkspaceId(Number(e.target.value));
+                setSelectedVersion('current');
+              }}
+              className="bg-slate-800 border border-slate-700 text-xs font-semibold rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-cyan-500 max-w-[130px] sm:max-w-[180px] md:max-w-[220px] truncate shrink-0 cursor-pointer"
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id} className="bg-slate-900">
+                  {w.name}
+                </option>
+              ))}
+            </select>
 
-          {/* Status & Version Pill */}
+            <button
+              onClick={handleCreateWorkspace}
+              title="Create New Architecture Workspace"
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Status & Version Pill with Interactive Version Dropdown */}
           {workspaceInfo && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs shrink-0">
-              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono text-[11px] border border-slate-700">
-                v{workspaceInfo.version}
-              </span>
+            <div className="relative flex items-center gap-1.5 text-xs shrink-0">
+              {/* Version pill / switcher button */}
+              <button
+                type="button"
+                onClick={() => setIsVersionDropdownOpen(!isVersionDropdownOpen)}
+                title="Click to browse, view, or restore published versions"
+                className="flex items-center gap-1 bg-slate-800 hover:bg-slate-750 rounded-full border border-slate-700 px-2.5 py-0.5 text-slate-200 transition cursor-pointer"
+              >
+                <History className="w-3 h-3 text-cyan-400" />
+                <span className="font-mono text-[11px] font-semibold text-slate-200">
+                  {selectedVersion === 'current' ? `v${workspaceInfo.version}` : `v${selectedVersion}`}
+                </span>
+                <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isVersionDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* State Badge */}
               <span
                 className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                  workspaceInfo.state === 'PUBLISHED'
+                  workspaceInfo.state === 'PUBLISHED' && selectedVersion === 'current'
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : selectedVersion !== 'current'
+                    ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
                     : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                 }`}
               >
-                {workspaceInfo.state}
+                {selectedVersion !== 'current' ? 'SNAPSHOT' : workspaceInfo.state}
               </span>
+
+              {/* Version History Dropdown Menu */}
+              {isVersionDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full mt-2 w-80 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-2.5 text-xs animate-in fade-in slide-in-from-top-1 duration-150"
+                  onMouseLeave={() => setIsVersionDropdownOpen(false)}
+                >
+                  <div className="flex items-center justify-between px-2 py-1 text-slate-400 border-b border-slate-800 font-semibold mb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Release History ({versions.length})</span>
+                    </span>
+                    <button
+                      onClick={() => setIsVersionDropdownOpen(false)}
+                      className="text-slate-500 hover:text-white text-sm"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {/* Active Workspace State */}
+                  <button
+                    onClick={() => {
+                      handleLoadVersion('current');
+                      setIsVersionDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition mb-1 ${
+                      selectedVersion === 'current'
+                        ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30 font-medium'
+                        : 'hover:bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-white">v{workspaceInfo.version}</span>
+                      <span className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
+                        workspaceInfo.state === 'PUBLISHED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {workspaceInfo.state}
+                      </span>
+                    </div>
+                    {selectedVersion === 'current' && <span className="text-[10px] text-blue-400 font-semibold">Active Editor</span>}
+                  </button>
+
+                  <div className="my-1 border-t border-slate-800" />
+
+                  {/* Historical Published Snapshots */}
+                  <div className="max-h-64 overflow-y-auto space-y-1.5 pr-0.5">
+                    {versions.length === 0 ? (
+                      <p className="text-slate-500 text-center py-3 text-[11px]">No published releases yet.</p>
+                    ) : (
+                      versions.map((ver) => (
+                        <div
+                          key={ver.id}
+                          className={`p-2.5 rounded-lg flex flex-col gap-1 border transition ${
+                            selectedVersion === ver.version
+                              ? 'bg-purple-600/20 border-purple-500/40 text-purple-200'
+                              : 'bg-slate-850/50 border-slate-800 hover:border-slate-750 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-white text-xs">v{ver.version}</span>
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(ver.publishedAt).toLocaleString()}
+                            </span>
+                          </div>
+                          {ver.commitMessage && (
+                            <p className="text-[11px] text-slate-300 line-clamp-2">{ver.commitMessage}</p>
+                          )}
+                          <div className="flex items-center gap-1.5 mt-1 pt-1 border-t border-slate-800/80">
+                            <button
+                              onClick={() => {
+                                handleLoadVersion(ver.version);
+                                setIsVersionDropdownOpen(false);
+                              }}
+                              className="flex-1 py-1 text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 transition text-center"
+                            >
+                              View Snapshot
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleRestoreVersion(ver.version);
+                                setIsVersionDropdownOpen(false);
+                              }}
+                              className="flex-1 py-1 text-[10px] font-semibold bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white rounded border border-purple-500/30 transition text-center"
+                            >
+                              Restore as Active
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -587,7 +851,7 @@ export function App() {
 
           {/* Visual Diff */}
           <button
-            onClick={handleOpenDiff}
+            onClick={() => handleOpenDiff()}
             title="Visual & Architecture Diff"
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition"
           >
@@ -931,8 +1195,10 @@ export function App() {
         isOpen={isDiffOpen}
         onClose={() => setIsDiffOpen(false)}
         diff={diffData}
-        baseVersion="Published (v1.0.0)"
-        targetVersion="Current Draft"
+        baseVersion={diffData?.baseVersion || `v${workspaceInfo?.version || '1.0.0'}`}
+        targetVersion={diffData?.targetVersion || (workspaceInfo?.state === 'PUBLISHED' ? `Published (v${workspaceInfo?.version})` : 'Current Draft')}
+        availableVersions={diffData?.availableVersions || versions.map((v) => v.version)}
+        onVersionChange={(v1, v2) => handleOpenDiff(v1, v2)}
       />
 
       <InspectionDrawer

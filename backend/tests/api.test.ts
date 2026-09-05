@@ -146,4 +146,59 @@ describe('API Endpoints', () => {
     const textJson = await resJson.text();
     expect(textJson).toContain('Big Bank plc');
   });
+
+  it('computes diff against published baseline with 0 differences when unmodified', async () => {
+    const res = await app.request('/api/workspaces/1/diff');
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.baseVersion).toContain('1.0.0');
+    expect(data.targetVersion).toBeDefined();
+    // Initially matching 1.0.0 baseline
+    expect(data.summary.addedCount).toBe(0);
+    expect(data.summary.modifiedCount).toBe(0);
+    expect(data.summary.removedCount).toBe(0);
+  });
+
+  it('publishes a new version and registers multiple versions in the enterprise catalog', async () => {
+    // Publish version 1.1.0
+    const publishRes = await app.request('/api/workspaces/1/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: '1.1.0',
+        commitMessage: 'Release 1.1.0 with payment service upgrade'
+      })
+    });
+    expect(publishRes.status).toBe(200);
+    const publishData = await publishRes.json();
+    expect(publishData.success).toBe(true);
+    expect(publishData.published.version).toBe('1.1.0');
+
+    // Verify catalog has both 1.0.0 and 1.1.0 records
+    const catRes = await app.request('/api/enterprise/catalog');
+    const catItems = await catRes.json();
+    const bankingItems = catItems.filter((item: any) => item.name === 'Internet Banking System');
+    expect(bankingItems.length).toBeGreaterThanOrEqual(2);
+    expect(bankingItems.some((i: any) => i.version === '1.0.0')).toBe(true);
+    expect(bankingItems.some((i: any) => i.version === '1.1.0')).toBe(true);
+
+    // Verify version list and version snapshot retrieval
+    const versionsRes = await app.request('/api/workspaces/1/versions');
+    const versions = await versionsRes.json();
+    expect(versions.length).toBeGreaterThanOrEqual(2);
+
+    const v1Res = await app.request('/api/workspaces/1/versions/1.0.0');
+    expect(v1Res.status).toBe(200);
+    const v1Data = await v1Res.json();
+    expect(v1Data.dslSource).toBeDefined();
+
+    // Verify restore/load past version
+    const restoreRes = await app.request('/api/workspaces/1/versions/1.0.0/load', {
+      method: 'POST'
+    });
+    expect(restoreRes.status).toBe(200);
+    const restoreData = await restoreRes.json();
+    expect(restoreData.success).toBe(true);
+    expect(restoreData.workspace.version).toBe('1.0.0');
+  });
 });

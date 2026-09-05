@@ -235,7 +235,8 @@ export class WorkspaceRepository {
       `);
 
       for (const sys of jsonData.model.softwareSystems) {
-        const sysId = `sys_${workspaceId}_${sys.id}`;
+        const cleanVer = version.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const sysId = `sys_${workspaceId}_${sys.id}_v${cleanVer}`;
         const containersStr = JSON.stringify(sys.containers || []);
         insCat.run(
           sysId,
@@ -251,6 +252,24 @@ export class WorkspaceRepository {
     }
 
     return { workspaceId, version, publishedAt: now };
+  }
+
+  restoreWorkspaceVersion(
+    workspaceId: number,
+    version: string
+  ): WorkspaceRecord | null {
+    const snap = this.getVersionSnapshot(workspaceId, version);
+    if (!snap) return null;
+
+    const now = new Date().toISOString();
+    const updateWs = this.db.prepare(`
+      UPDATE workspaces
+      SET dsl_source = ?, json_cache = ?, version = ?, state = 'PUBLISHED', updated_at = ?
+      WHERE id = ?
+    `);
+    updateWs.run(snap.dslSource, JSON.stringify(snap.jsonCache), version, now, workspaceId);
+
+    return this.getWorkspace(workspaceId);
   }
 
   listVersions(workspaceId: number): VersionRecord[] {
@@ -290,7 +309,7 @@ export class WorkspaceRepository {
   getEnterpriseCatalog(): CatalogItem[] {
     const stmt = this.db.prepare(`
       SELECT id, workspace_id, system_name, description, tags, containers_json, published_version, updated_at
-      FROM enterprise_catalog ORDER BY system_name ASC
+      FROM enterprise_catalog ORDER BY system_name ASC, updated_at DESC
     `);
     const rows: any[] = stmt.all() as any[];
 
