@@ -1,0 +1,21 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+title Containers
+
+Container(c_6, "Web Studio", "React 19, TypeScript, Vite, React Flow, Monaco Editor, Tailwind CSS", "Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, minimap, catalog browser, visual diffing, and export modals.")
+Container(c_7, "Backend Server", "Node.js, TypeScript, Hono", "REST API and MCP server handling workspace storage, compilation, validation, and CLI communication.")
+Container(c_16, "Database", "SQLite", "Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog.")
+Person(p_1, "Software & Enterprise Architect", "Designs systems, models workspaces, manages enterprise catalog, and reviews visual diffs.")
+Person(p_2, "Software Engineer", "Navigates architecture diagrams, explores component designs, and exports Mermaid diagrams for documentation.")
+Person(p_3, "AI Assistant", "Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.")
+System(s_17, "Structurizr CLI", "Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.")
+System(s_18, "Documentation Sites", "GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams.")
+
+Rel(1, 6, "Edits architecture DSL, views diagrams, and manages catalog", "HTTPS")
+Rel(2, 6, "Explores system, container, and component diagrams", "HTTPS")
+Rel(3, 7, "Invokes MCP tools to validate, inspect, query, and export models", "JSON-RPC / HTTP")
+Rel(17, 7, "Pushes and pulls workspace models", "HTTP / REST")
+Rel(6, 7, "Fetches workspaces, saves layout coordinates, and manages catalog", "JSON / REST")
+Rel(6, 18, "Exports Mermaid diagrams to", "Markdown")
+Rel(7, 16, "Reads and writes data", "SQL / better-sqlite3")
+@enduml

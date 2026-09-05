@@ -6,6 +6,169 @@
 
 // Architectural Presets & Levels Data
 const ARCHITECTURE_DATA = {
+  openc4: {
+    name: "OpenC4 Platform",
+    dsl: {
+      context: `workspace "OpenC4" "Architecture model of OpenC4 open-source C4 architecture platform" {
+    model {
+        architect = person "Software & Enterprise Architect" "Designs systems, models workspaces, manages enterprise catalog, and reviews visual diffs."
+        developer = person "Software Engineer" "Navigates architecture diagrams, explores component designs, and exports Mermaid diagrams for documentation."
+        aiAgent = person "AI Assistant" "Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules."
+        cicdPipeline = person "CI/CD Pipeline" "Automates workspace publishing and validates architecture diagrams using structurizr-cli."
+
+        openC4 = softwareSystem "OpenC4 Platform" "Modern open-source C4 architecture modeling tool, real-time diagram studio, and workspace server." "OpenC4"
+        cliTool = softwareSystem "Structurizr CLI" "Official command-line tool for pushing/pulling DSL models in CI/CD pipelines." "ExternalTool"
+        docSites = softwareSystem "Documentation Sites" "GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams." "ExternalSystem"
+
+        architect -> openC4 "Edits architecture DSL, views diagrams, and manages catalog" "HTTPS"
+        developer -> openC4 "Explores system, container, and component diagrams" "HTTPS"
+        aiAgent -> openC4 "Invokes MCP tools to validate, inspect, query, and export models" "JSON-RPC / HTTP"
+        cicdPipeline -> cliTool "Executes push and pull commands" "CLI"
+        cliTool -> openC4 "Pushes and pulls workspace models" "HTTP / REST"
+        openC4 -> docSites "Exports Mermaid diagrams to" "Markdown"
+    }
+    views {
+        systemContext openC4 "SystemContext" {
+            include *
+            autoLayout lr
+        }
+    }
+}`,
+      container: `workspace "OpenC4" {
+    model {
+        openC4 = softwareSystem "OpenC4 Platform" {
+            webStudio = container "Web Studio" "Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, and export modals" "React 19, TypeScript, Vite"
+            backendServer = container "Backend Server" "REST API and MCP server handling workspace storage, compilation, and CLI communication" "Node.js, TypeScript, Hono"
+            database = container "Database" "Persists workspaces, DSL source code, revision history, API credentials, and catalog" "SQLite" "Database"
+        }
+        architect = person "Software & Enterprise Architect"
+        developer = person "Software Engineer"
+        aiAgent = person "AI Assistant"
+        cliTool = softwareSystem "Structurizr CLI"
+        docSites = softwareSystem "Documentation Sites"
+
+        architect -> webStudio "Edits architecture DSL, views diagrams" "HTTPS"
+        developer -> webStudio "Explores diagrams" "HTTPS"
+        aiAgent -> backendServer "Invokes MCP tools" "JSON-RPC / HTTP"
+        cliTool -> backendServer "Pushes and pulls workspaces" "HTTP / REST"
+        webStudio -> backendServer "Fetches workspaces, saves layout coordinates" "JSON / REST"
+        webStudio -> docSites "Exports Mermaid diagrams" "Markdown"
+        backendServer -> database "Reads and writes data" "SQL / better-sqlite3"
+    }
+    views {
+        container openC4 "Containers" {
+            include *
+            autoLayout lr
+        }
+    }
+}`,
+      component: `workspace "OpenC4" {
+    model {
+        openC4 = softwareSystem "OpenC4 Platform" {
+            backendServer = container "Backend Server" {
+                workspaceApi = component "Workspace Controller" "Handles workspace CRUD, drafts, version publishing" "Hono Route Handler"
+                cliApi = component "Structurizr CLI Controller" "Implements official Structurizr Web API for CLI push/pull" "Hono Route Handler"
+                mcpController = component "MCP Controller" "JSON-RPC endpoint implementing MCP tools" "Hono Route Handler"
+                parser = component "DSL Lexer & Parser" "Tokenizes and parses Structurizr DSL source into typed AST" "TypeScript Module"
+                compiler = component "C4 Model Compiler" "Compiles AST into Structurizr JSON, Mermaid, PlantUML" "TypeScript Module"
+                inspector = component "Architecture Linter" "Automated rule checker for architectural quality" "TypeScript Module"
+                diffEngine = component "Visual Diff Engine" "Compares workspace versions and computes diffs" "TypeScript Module"
+                repository = component "Workspace Repository" "Manages SQLite persistence for workspaces" "better-sqlite3"
+            }
+            database = container "Database"
+        }
+        workspaceApi -> repository "Queries & updates records"
+        workspaceApi -> parser "Parses DSL"
+        workspaceApi -> compiler "Compiles AST"
+        mcpController -> inspector "Lints architectural rules"
+        repository -> database "Executes SQLite queries"
+    }
+    views {
+        component backendServer "BackendComponents" {
+            include *
+            autoLayout lr
+        }
+    }
+}`,
+      deployment: `workspace "OpenC4" {
+    model {
+        prod = deploymentEnvironment "Production" {
+            dockerNode = deploymentNode "Container Host (Docker / Cloud VM)" {
+                containerInstance webStudio
+                containerInstance backendServer
+                containerInstance database
+            }
+        }
+    }
+    views {
+        deployment openC4 "prod" "ProductionDeployment" {
+            include *
+            autoLayout lr
+        }
+    }
+}`
+    },
+    diagrams: {
+      context: {
+        title: "System Context View: OpenC4 Platform",
+        elements: [
+          { id: "architect", type: "person", name: "Architect", tech: "[Person]", desc: "Designs systems, models workspaces, manages catalog.", x: 20, y: 70, canDrill: false },
+          { id: "developer", type: "person", name: "Software Engineer", tech: "[Person]", desc: "Explores diagrams, views component designs.", x: 20, y: 200, canDrill: false },
+          { id: "aiAgent", type: "person", name: "AI Assistant", tech: "[AI / MCP]", desc: "Validates, queries, and lints architecture models.", x: 20, y: 330, canDrill: false },
+          { id: "openC4", type: "system", name: "OpenC4 Platform", tech: "[Software System]", desc: "Modern open-source C4 architecture modeling tool.", x: 270, y: 150, canDrill: true },
+          { id: "cliTool", type: "system", name: "Structurizr CLI", tech: "[CLI Tool]", desc: "Pushes and pulls DSL models in CI/CD.", x: 500, y: 80, canDrill: false },
+          { id: "docSites", type: "system", name: "Doc Sites", tech: "[Documentation]", desc: "GitHub, GitLab, Notion, VitePress.", x: 500, y: 240, canDrill: false }
+        ],
+        relations: [
+          { x1: 150, y1: 100, x2: 270, y2: 170, label: "HTTPS" },
+          { x1: 150, y1: 220, x2: 270, y2: 190, label: "HTTPS" },
+          { x1: 150, y1: 350, x2: 270, y2: 220, label: "JSON-RPC / MCP" },
+          { x1: 500, y1: 110, x2: 400, y2: 170, label: "HTTP / REST" },
+          { x1: 400, y1: 210, x2: 500, y2: 260, label: "Mermaid Export" }
+        ]
+      },
+      container: {
+        title: "Container View: OpenC4 Platform",
+        elements: [
+          { id: "webStudio", type: "container-node", name: "Web Studio", tech: "React 19, TypeScript", desc: "Monaco DSL editor, React Flow canvas, minimap.", x: 30, y: 90, canDrill: false },
+          { id: "backendServer", type: "container-node", name: "Backend Server", tech: "Node.js, Hono", desc: "REST API, MCP server, AST compiler, linter.", x: 260, y: 90, canDrill: true },
+          { id: "database", type: "database", name: "Database", tech: "SQLite", desc: "Workspaces, drafts, published revisions, catalog.", x: 490, y: 90, canDrill: false }
+        ],
+        relations: [
+          { x1: 160, y1: 120, x2: 260, y2: 120, label: "JSON / REST" },
+          { x1: 390, y1: 120, x2: 490, y2: 120, label: "better-sqlite3" }
+        ]
+      },
+      component: {
+        title: "Component View: Backend Server",
+        elements: [
+          { id: "workspaceApi", type: "component-node", name: "Workspace API", tech: "Hono Route", desc: "CRUD, versions, diffs, catalog.", x: 30, y: 50, canDrill: false },
+          { id: "cliApi", type: "component-node", name: "CLI Controller", tech: "Hono Route", desc: "Structurizr REST API push/pull.", x: 30, y: 170, canDrill: false },
+          { id: "mcpController", type: "component-node", name: "MCP Controller", tech: "Hono Route", desc: "JSON-RPC MCP tool endpoints.", x: 30, y: 290, canDrill: false },
+          { id: "parser", type: "component-node", name: "DSL Parser", tech: "TS Module", desc: "Tokenizes and parses DSL into AST.", x: 260, y: 110, canDrill: false },
+          { id: "compiler", type: "component-node", name: "Model Compiler", tech: "TS Module", desc: "Compiles AST to JSON, Mermaid, PlantUML.", x: 260, y: 240, canDrill: false },
+          { id: "repository", type: "database", name: "Repository", tech: "better-sqlite3", desc: "SQLite storage layer.", x: 490, y: 170, canDrill: false }
+        ],
+        relations: [
+          { x1: 160, y1: 80, x2: 260, y2: 130, label: "Parses DSL" },
+          { x1: 160, y1: 200, x2: 260, y2: 260, label: "Compiles" },
+          { x1: 160, y1: 320, x2: 260, y2: 140, label: "Validates" },
+          { x1: 390, y1: 140, x2: 490, y2: 190, label: "Reads/Writes" },
+          { x1: 390, y1: 260, x2: 490, y2: 200, label: "Queries" }
+        ]
+      },
+      deployment: {
+        title: "Deployment View: Containerized Environment",
+        elements: [
+          { id: "dockerHost", type: "container-node", name: "Docker / Host VM", tech: "Linux / macOS", desc: "Runs OpenC4 multi-stage container.", x: 80, y: 150, canDrill: false },
+          { id: "sqliteVol", type: "database", name: "SQLite Volume", tech: "./data Mount", desc: "Persistent database volume.", x: 380, y: 150, canDrill: false }
+        ],
+        relations: [
+          { x1: 210, y1: 190, x2: 380, y2: 190, label: "Volume Mount" }
+        ]
+      }
+    }
+  },
   banking: {
     name: "Internet Banking System",
     dsl: {
@@ -296,7 +459,7 @@ const ARCHITECTURE_DATA = {
 };
 
 // Application State
-let currentPreset = "banking";
+let currentPreset = "openc4";
 let currentLevel = "context";
 
 // DOM Elements
@@ -304,6 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
   initPresetSelector();
   initLevelTabs();
+  initArchTabs();
   initGuideTabs();
   initCopyButtons();
   initExportModal();

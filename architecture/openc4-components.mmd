@@ -1,0 +1,28 @@
+flowchart TB
+    node_8["<b>Workspace Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>Handles workspace CRUD, drafts, version publishing, locks, and enterprise catalog APIs.</i>"]
+    node_9["<b>Structurizr CLI Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>Implements official Structurizr Web API endpoints (/api/workspace/*) for push/pull CLI interoperability.</i>"]
+    node_10["<b>MCP Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>JSON-RPC endpoint (/mcp) implementing Model Context Protocol tools (validate_dsl, inspect_workspace, export_diagram, query_model).</i>"]
+    node_11["<b>DSL Lexer & Parser</b><br/>COMPONENT [TypeScript Module]<br/><i>Tokenizes and parses Structurizr DSL source into typed AST models.</i>"]
+    node_12["<b>C4 Model Compiler</b><br/>COMPONENT [TypeScript Module]<br/><i>Compiles AST into Structurizr JSON, Mermaid, PlantUML, and React Flow canvas layouts.</i>"]
+    node_13["<b>Architecture Linter</b><br/>COMPONENT [TypeScript Module]<br/><i>Automated rule checker identifying orphaned elements, missing metadata, and implied conflicts.</i>"]
+    node_14["<b>Visual Diff Engine</b><br/>COMPONENT [TypeScript Module]<br/><i>Compares workspace versions and computes added, modified, and removed elements.</i>"]
+    node_15["<b>Workspace Repository</b><br/>COMPONENT [TypeScript Class / better-sqlite3]<br/><i>Manages SQLite persistence for workspaces, revisions, API keys, locks, and catalog entries.</i>"]
+    node_3["<b>AI Assistant</b><br/>PERSON<br/><i>Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.</i>"]
+    node_17["<b>Structurizr CLI</b><br/>SOFTWARESYSTEM<br/><i>Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.</i>"]
+    node_6["<b>Web Studio</b><br/>CONTAINER [React 19, TypeScript, Vite, React Flow, Monaco Editor, Tailwind CSS]<br/><i>Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, minimap, catalog browser, visual diffing, and export modals.</i>"]
+    node_16["<b>Database</b><br/>CONTAINER [SQLite]<br/><i>Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog.</i>"]
+    node_3 -->|"Invokes MCP tools to validate, inspect, query, and export models [JSON-RPC / HTTP]"| node_10
+    node_17 -->|"Pushes and pulls workspace models [HTTP / REST]"| node_9
+    node_6 -->|"Fetches workspaces, saves layout coordinates, and manages catalog [JSON / REST]"| node_8
+    node_8 -->|"Queries and updates workspace records [Internal Call]"| node_15
+    node_8 -->|"Parses DSL source code [Internal Call]"| node_11
+    node_8 -->|"Compiles AST to JSON and layout coordinates [Internal Call]"| node_12
+    node_8 -->|"Computes visual differences between versions [Internal Call]"| node_14
+    node_9 -->|"Retrieves and saves workspace revisions [Internal Call]"| node_15
+    node_9 -->|"Parses uploaded DSL [Internal Call]"| node_11
+    node_9 -->|"Compiles workspace to Structurizr JSON [Internal Call]"| node_12
+    node_10 -->|"Parses DSL for validation [Internal Call]"| node_11
+    node_10 -->|"Inspects architectural rules and completeness [Internal Call]"| node_13
+    node_10 -->|"Exports diagrams to Mermaid, PlantUML, and JSON [Internal Call]"| node_12
+    node_10 -->|"Queries workspace models [Internal Call]"| node_15
+    node_15 -->|"Reads and writes data [SQL / better-sqlite3]"| node_16

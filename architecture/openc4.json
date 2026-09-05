@@ -1,0 +1,438 @@
+{
+  "id": 1,
+  "name": "OpenC4",
+  "description": "Architecture model of OpenC4 open-source C4 architecture platform",
+  "version": "1.0.0",
+  "lastModifiedDate": "2026-09-05T19:38:59.167Z",
+  "model": {
+    "people": [
+      {
+        "id": "1",
+        "name": "Software & Enterprise Architect",
+        "description": "Designs systems, models workspaces, manages enterprise catalog, and reviews visual diffs.",
+        "location": "Unspecified",
+        "tags": "Person,Element",
+        "relationships": [
+          {
+            "id": "19",
+            "sourceId": "1",
+            "destinationId": "6",
+            "description": "Edits architecture DSL, views diagrams, and manages catalog",
+            "technology": "HTTPS",
+            "interactionStyle": "Synchronous",
+            "tags": "Relationship"
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "name": "Software Engineer",
+        "description": "Navigates architecture diagrams, explores component designs, and exports Mermaid diagrams for documentation.",
+        "location": "Unspecified",
+        "tags": "Person,Element",
+        "relationships": [
+          {
+            "id": "20",
+            "sourceId": "2",
+            "destinationId": "6",
+            "description": "Explores system, container, and component diagrams",
+            "technology": "HTTPS",
+            "interactionStyle": "Synchronous",
+            "tags": "Relationship"
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "name": "AI Assistant",
+        "description": "Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.",
+        "location": "Unspecified",
+        "tags": "Person,Element",
+        "relationships": [
+          {
+            "id": "21",
+            "sourceId": "3",
+            "destinationId": "10",
+            "description": "Invokes MCP tools to validate, inspect, query, and export models",
+            "technology": "JSON-RPC / HTTP",
+            "interactionStyle": "Synchronous",
+            "tags": "Relationship"
+          }
+        ]
+      },
+      {
+        "id": "4",
+        "name": "CI/CD Pipeline",
+        "description": "Automates workspace publishing and validates architecture diagrams using structurizr-cli.",
+        "location": "Unspecified",
+        "tags": "Person,Element",
+        "relationships": [
+          {
+            "id": "22",
+            "sourceId": "4",
+            "destinationId": "17",
+            "description": "Executes push and pull commands",
+            "technology": "CLI",
+            "interactionStyle": "Synchronous",
+            "tags": "Relationship"
+          }
+        ]
+      }
+    ],
+    "softwareSystems": [
+      {
+        "id": "5",
+        "name": "OpenC4 Platform",
+        "description": "Modern open-source C4 architecture modeling tool, real-time diagram studio, and workspace server.",
+        "location": "Unspecified",
+        "tags": "Software System,OpenC4,Element",
+        "containers": [
+          {
+            "id": "6",
+            "name": "Web Studio",
+            "description": "Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, minimap, catalog browser, visual diffing, and export modals.",
+            "technology": "React 19, TypeScript, Vite, React Flow, Monaco Editor, Tailwind CSS",
+            "tags": "Container,WebBrowser,Element",
+            "components": [],
+            "relationships": [
+              {
+                "id": "24",
+                "sourceId": "6",
+                "destinationId": "8",
+                "description": "Fetches workspaces, saves layout coordinates, and manages catalog",
+                "technology": "JSON / REST",
+                "interactionStyle": "Synchronous",
+                "tags": "Relationship"
+              },
+              {
+                "id": "25",
+                "sourceId": "6",
+                "destinationId": "18",
+                "description": "Exports Mermaid diagrams to",
+                "technology": "Markdown",
+                "interactionStyle": "Synchronous",
+                "tags": "Relationship"
+              }
+            ]
+          },
+          {
+            "id": "7",
+            "name": "Backend Server",
+            "description": "REST API and MCP server handling workspace storage, compilation, validation, and CLI communication.",
+            "technology": "Node.js, TypeScript, Hono",
+            "tags": "Container,ServerApp,Element",
+            "components": [
+              {
+                "id": "8",
+                "name": "Workspace Controller",
+                "description": "Handles workspace CRUD, drafts, version publishing, locks, and enterprise catalog APIs.",
+                "technology": "Hono Route Handler",
+                "tags": "Component,Element",
+                "relationships": [
+                  {
+                    "id": "26",
+                    "sourceId": "8",
+                    "destinationId": "15",
+                    "description": "Queries and updates workspace records",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "27",
+                    "sourceId": "8",
+                    "destinationId": "11",
+                    "description": "Parses DSL source code",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "28",
+                    "sourceId": "8",
+                    "destinationId": "12",
+                    "description": "Compiles AST to JSON and layout coordinates",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "29",
+                    "sourceId": "8",
+                    "destinationId": "14",
+                    "description": "Computes visual differences between versions",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  }
+                ]
+              },
+              {
+                "id": "9",
+                "name": "Structurizr CLI Controller",
+                "description": "Implements official Structurizr Web API endpoints (/api/workspace/*) for push/pull CLI interoperability.",
+                "technology": "Hono Route Handler",
+                "tags": "Component,Element",
+                "relationships": [
+                  {
+                    "id": "30",
+                    "sourceId": "9",
+                    "destinationId": "15",
+                    "description": "Retrieves and saves workspace revisions",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "31",
+                    "sourceId": "9",
+                    "destinationId": "11",
+                    "description": "Parses uploaded DSL",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "32",
+                    "sourceId": "9",
+                    "destinationId": "12",
+                    "description": "Compiles workspace to Structurizr JSON",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  }
+                ]
+              },
+              {
+                "id": "10",
+                "name": "MCP Controller",
+                "description": "JSON-RPC endpoint (/mcp) implementing Model Context Protocol tools (validate_dsl, inspect_workspace, export_diagram, query_model).",
+                "technology": "Hono Route Handler",
+                "tags": "Component,Element",
+                "relationships": [
+                  {
+                    "id": "33",
+                    "sourceId": "10",
+                    "destinationId": "11",
+                    "description": "Parses DSL for validation",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "34",
+                    "sourceId": "10",
+                    "destinationId": "13",
+                    "description": "Inspects architectural rules and completeness",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "35",
+                    "sourceId": "10",
+                    "destinationId": "12",
+                    "description": "Exports diagrams to Mermaid, PlantUML, and JSON",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  },
+                  {
+                    "id": "36",
+                    "sourceId": "10",
+                    "destinationId": "15",
+                    "description": "Queries workspace models",
+                    "technology": "Internal Call",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  }
+                ]
+              },
+              {
+                "id": "11",
+                "name": "DSL Lexer & Parser",
+                "description": "Tokenizes and parses Structurizr DSL source into typed AST models.",
+                "technology": "TypeScript Module",
+                "tags": "Component,Element"
+              },
+              {
+                "id": "12",
+                "name": "C4 Model Compiler",
+                "description": "Compiles AST into Structurizr JSON, Mermaid, PlantUML, and React Flow canvas layouts.",
+                "technology": "TypeScript Module",
+                "tags": "Component,Element"
+              },
+              {
+                "id": "13",
+                "name": "Architecture Linter",
+                "description": "Automated rule checker identifying orphaned elements, missing metadata, and implied conflicts.",
+                "technology": "TypeScript Module",
+                "tags": "Component,Element"
+              },
+              {
+                "id": "14",
+                "name": "Visual Diff Engine",
+                "description": "Compares workspace versions and computes added, modified, and removed elements.",
+                "technology": "TypeScript Module",
+                "tags": "Component,Element"
+              },
+              {
+                "id": "15",
+                "name": "Workspace Repository",
+                "description": "Manages SQLite persistence for workspaces, revisions, API keys, locks, and catalog entries.",
+                "technology": "TypeScript Class / better-sqlite3",
+                "tags": "Component,Element",
+                "relationships": [
+                  {
+                    "id": "37",
+                    "sourceId": "15",
+                    "destinationId": "16",
+                    "description": "Reads and writes data",
+                    "technology": "SQL / better-sqlite3",
+                    "interactionStyle": "Synchronous",
+                    "tags": "Relationship"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "16",
+            "name": "Database",
+            "description": "Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog.",
+            "technology": "SQLite",
+            "tags": "Container,Database,Element",
+            "components": []
+          }
+        ]
+      },
+      {
+        "id": "17",
+        "name": "Structurizr CLI",
+        "description": "Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.",
+        "location": "Unspecified",
+        "tags": "Software System,ExternalTool,Element",
+        "containers": [],
+        "relationships": [
+          {
+            "id": "23",
+            "sourceId": "17",
+            "destinationId": "9",
+            "description": "Pushes and pulls workspace models",
+            "technology": "HTTP / REST",
+            "interactionStyle": "Synchronous",
+            "tags": "Relationship"
+          }
+        ]
+      },
+      {
+        "id": "18",
+        "name": "Documentation Sites",
+        "description": "GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams.",
+        "location": "Unspecified",
+        "tags": "Software System,ExternalSystem,Element",
+        "containers": []
+      }
+    ],
+    "deploymentNodes": []
+  },
+  "views": {
+    "systemLandscapeViews": [],
+    "systemContextViews": [
+      {
+        "key": "SystemContext",
+        "description": "The system context diagram for the OpenC4 platform.",
+        "title": "SystemContext",
+        "elements": [],
+        "relationships": [],
+        "automaticLayout": {
+          "implementation": "Graphviz",
+          "rankDirection": "LeftRight"
+        },
+        "softwareSystemId": "5"
+      }
+    ],
+    "containerViews": [
+      {
+        "key": "Containers",
+        "description": "The container diagram for the OpenC4 platform.",
+        "title": "Containers",
+        "elements": [],
+        "relationships": [],
+        "automaticLayout": {
+          "implementation": "Graphviz",
+          "rankDirection": "LeftRight"
+        },
+        "softwareSystemId": "5"
+      }
+    ],
+    "componentViews": [
+      {
+        "key": "BackendComponents",
+        "description": "The component diagram for the OpenC4 backend server.",
+        "title": "BackendComponents",
+        "elements": [],
+        "relationships": [],
+        "automaticLayout": {
+          "implementation": "Graphviz",
+          "rankDirection": "LeftRight"
+        },
+        "containerId": "7"
+      }
+    ],
+    "configuration": {
+      "styles": {
+        "elements": [
+          {
+            "tag": "Person",
+            "shape": "Person",
+            "background": "#08427b",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "Software System",
+            "background": "#1168bd",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "OpenC4",
+            "background": "#0f52ba",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "Container",
+            "background": "#2b77c5",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "WebBrowser",
+            "shape": "WebBrowser"
+          },
+          {
+            "tag": "Database",
+            "shape": "Cylinder",
+            "background": "#1b5b9e",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "Component",
+            "background": "#438dd5",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "ExternalTool",
+            "background": "#64748b",
+            "color": "#ffffff"
+          },
+          {
+            "tag": "ExternalSystem",
+            "background": "#64748b",
+            "color": "#ffffff"
+          }
+        ],
+        "relationships": []
+      },
+      "themes": []
+    }
+  }
+}

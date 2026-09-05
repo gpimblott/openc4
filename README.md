@@ -101,6 +101,7 @@ flowchart TB
     node_10 -->|"Queries workspace models [Internal Call]"| node_15
     node_15 -->|"Reads and writes data [SQL / better-sqlite3]"| node_16
 ```
+
 ---
 
 ## Compatibility & Interoperability
