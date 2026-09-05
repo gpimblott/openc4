@@ -467,7 +467,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
   initPresetSelector();
   initLevelTabs();
-  initArchTabs();
   initGuideTabs();
   initCopyButtons();
   initExportModal();
@@ -769,25 +768,4 @@ Rel(bankingSystem, coreBanking, "Queries balances", "XML/HTTPS")
       }, null, 2);
     }
   }
-}
-
-// Architecture View Tabs
-function initArchTabs() {
-  const tabs = document.querySelectorAll(".arch-tab-btn");
-  const panes = document.querySelectorAll(".arch-view-pane");
-
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const targetId = tab.getAttribute("data-view");
-
-      tabs.forEach(t => t.classList.remove("active"));
-      panes.forEach(p => p.classList.remove("active"));
-
-      tab.classList.add("active");
-      const targetPane = document.getElementById(targetId);
-      if (targetPane) {
-        targetPane.classList.add("active");
-      }
-    });
-  });
 }
