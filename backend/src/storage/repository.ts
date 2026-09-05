@@ -306,14 +306,22 @@ export class WorkspaceRepository {
     };
   }
 
-  getEnterpriseCatalog(): CatalogItem[] {
-    const stmt = this.db.prepare(`
+  getEnterpriseCatalog(options?: { latestOnly?: boolean; workspaceId?: number }): CatalogItem[] {
+    let query = `
       SELECT id, workspace_id, system_name, description, tags, containers_json, published_version, updated_at
-      FROM enterprise_catalog ORDER BY system_name ASC, updated_at DESC
-    `);
-    const rows: any[] = stmt.all() as any[];
+      FROM enterprise_catalog
+    `;
+    const params: any[] = [];
+    if (options?.workspaceId !== undefined && !isNaN(options.workspaceId)) {
+      query += ` WHERE workspace_id = ? `;
+      params.push(options.workspaceId);
+    }
+    query += ` ORDER BY system_name ASC, updated_at DESC`;
 
-    return rows.map((r) => ({
+    const stmt = this.db.prepare(query);
+    const rows: any[] = (params.length > 0 ? stmt.all(...params) : stmt.all()) as any[];
+
+    const items: CatalogItem[] = rows.map((r) => ({
       id: r.id,
       workspaceId: Number(r.workspace_id),
       name: r.system_name,
@@ -323,6 +331,40 @@ export class WorkspaceRepository {
       version: r.published_version,
       updatedAt: r.updated_at
     }));
+
+    if (!options?.latestOnly) {
+      return items;
+    }
+
+    const latestMap = new Map<string, CatalogItem>();
+    for (const item of items) {
+      const existing = latestMap.get(item.name);
+      if (!existing) {
+        latestMap.set(item.name, item);
+      } else {
+        const partsA = (item.version || '').replace(/^v/, '').split('.').map((p) => parseInt(p, 10));
+        const partsB = (existing.version || '').replace(/^v/, '').split('.').map((p) => parseInt(p, 10));
+        let isItemNewer = false;
+        const maxLen = Math.max(partsA.length, partsB.length);
+        for (let i = 0; i < maxLen; i++) {
+          const numA = isNaN(partsA[i]) ? 0 : partsA[i];
+          const numB = isNaN(partsB[i]) ? 0 : partsB[i];
+          if (numA > numB) {
+            isItemNewer = true;
+            break;
+          }
+          if (numA < numB) {
+            isItemNewer = false;
+            break;
+          }
+        }
+        if (isItemNewer || (!partsA.some((p, idx) => p !== partsB[idx]) && new Date(item.updatedAt) > new Date(existing.updatedAt))) {
+          latestMap.set(item.name, item);
+        }
+      }
+    }
+
+    return Array.from(latestMap.values());
   }
 
   regenerateApiKey(workspaceId: number): { apiKey: string; apiSecret: string } | null {

@@ -403,6 +403,81 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     }
   }
 
+  // Determine parent boundary outlines for Container or Component views
+  const boundaries: Array<{
+    id: string;
+    name: string;
+    type: string;
+    technology?: string;
+    description?: string;
+    childIds: string[];
+    parentBoundaryId?: string | null;
+  }> = [];
+
+  if (view) {
+    if (view.viewType === 'container' && view.softwareSystemId) {
+      const targetSys = ws.model.softwareSystems.find((s) => s.id === view.softwareSystemId);
+      if (targetSys) {
+        const childIds = targetSys.containers
+          .map((c) => c.id)
+          .filter((id) => visibleElementIds.has(id));
+        if (childIds.length > 0) {
+          boundaries.push({
+            id: targetSys.id,
+            name: targetSys.name,
+            type: 'softwareSystem',
+            technology: '',
+            description: targetSys.description,
+            childIds,
+            parentBoundaryId: null
+          });
+        }
+      }
+    } else if (view.viewType === 'component' && view.containerId) {
+      const targetCont = allElements[view.containerId];
+      if (targetCont) {
+        const parentSysId = targetCont.parentId;
+        const targetSys = parentSysId ? ws.model.softwareSystems.find((s) => s.id === parentSysId) : null;
+
+        // Outer boundary: Software System
+        if (targetSys) {
+          const sysChildIds = Array.from(visibleElementIds).filter(
+            (id) => getSystemId(id) === targetSys.id
+          );
+          if (sysChildIds.length > 0) {
+            boundaries.push({
+              id: targetSys.id,
+              name: targetSys.name,
+              type: 'softwareSystem',
+              technology: '',
+              description: targetSys.description,
+              childIds: sysChildIds,
+              parentBoundaryId: null
+            });
+          }
+        }
+
+        // Inner boundary: Container
+        const compChildIds = Object.keys(allElements).filter(
+          (id) => allElements[id]?.parentId === view.containerId && visibleElementIds.has(id)
+        );
+        if (compChildIds.length > 0) {
+          boundaries.push({
+            id: targetCont.id,
+            name: targetCont.name,
+            type: 'container',
+            technology: targetCont.technology || '',
+            description: targetCont.description,
+            childIds: compChildIds,
+            parentBoundaryId: targetSys?.id || null
+          });
+        }
+      }
+    }
+  }
+
+  const boundary = boundaries.length > 0 ? boundaries[boundaries.length - 1] : null;
+
   // Style mapping
   const styleMap = new Map<string, any>();
   for (const s of ws.elementStyles) {
@@ -562,6 +637,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     title: view ? view.title : ws.name,
     description: view ? view.description : ws.description,
     autoLayout: view?.autoLayout || 'tb',
+    boundary,
+    boundaries,
     nodes,
     edges,
     availableViews: ws.views.map((v) => ({
@@ -577,7 +654,10 @@ export function exportToMermaid(ws: Workspace, viewKey?: string | null): string 
   const canvasData = compileViewToCanvas(ws, viewKey);
   const lines = ['flowchart TB'];
 
-  for (const node of canvasData.nodes) {
+  const boundaries = canvasData.boundaries || (canvasData.boundary ? [canvasData.boundary] : []);
+  const nodeMap = new Map<string, any>(canvasData.nodes.map((n: any) => [n.id, n]));
+
+  const renderNode = (node: any, indent: string) => {
     const nid = node.id;
     const data = node.data;
     const name = data.name;
@@ -586,7 +666,61 @@ export function exportToMermaid(ws: Workspace, viewKey?: string | null): string 
     const ntype = data.type.toUpperCase();
 
     const label = `<b>${name}</b><br/>${ntype}${tech}<br/><i>${desc}</i>`;
-    lines.push(`    node_${nid}["${label}"]`);
+    return `${indent}node_${nid}["${label}"]`;
+  };
+
+  const renderedNodeIds = new Set<string>();
+
+  if (boundaries.length === 2 && boundaries[1].parentBoundaryId === boundaries[0].id) {
+    const sysB = boundaries[0];
+    const contB = boundaries[1];
+    const contChildSet = new Set(contB.childIds);
+
+    lines.push(`    subgraph boundary_${sysB.id} ["<b>${sysB.name}</b><br/>[${sysB.type.toUpperCase()}]"]`);
+
+    // Nested container subgraph
+    const tech = contB.technology ? ` [${contB.technology}]` : '';
+    lines.push(`        subgraph boundary_${contB.id} ["<b>${contB.name}</b><br/>[${contB.type.toUpperCase()}${tech}]"]`);
+    for (const cid of contB.childIds) {
+      const node = nodeMap.get(cid);
+      if (node) {
+        lines.push(renderNode(node, '            '));
+        renderedNodeIds.add(cid);
+      }
+    }
+    lines.push('        end');
+
+    // Sibling elements inside system but outside container
+    for (const cid of sysB.childIds) {
+      if (!contChildSet.has(cid)) {
+        const node = nodeMap.get(cid);
+        if (node) {
+          lines.push(renderNode(node, '        '));
+          renderedNodeIds.add(cid);
+        }
+      }
+    }
+
+    lines.push('    end');
+  } else {
+    for (const b of boundaries) {
+      const tech = b.technology ? ` [${b.technology}]` : '';
+      lines.push(`    subgraph boundary_${b.id} ["<b>${b.name}</b><br/>[${b.type.toUpperCase()}${tech}]"]`);
+      for (const cid of b.childIds) {
+        const node = nodeMap.get(cid);
+        if (node && !renderedNodeIds.has(cid)) {
+          lines.push(renderNode(node, '        '));
+          renderedNodeIds.add(cid);
+        }
+      }
+      lines.push('    end');
+    }
+  }
+
+  for (const node of canvasData.nodes) {
+    if (!renderedNodeIds.has(node.id)) {
+      lines.push(renderNode(node, '    '));
+    }
   }
 
   for (const edge of canvasData.edges) {
@@ -610,7 +744,10 @@ export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string
     ''
   ];
 
-  for (const node of canvasData.nodes) {
+  const boundaries = canvasData.boundaries || (canvasData.boundary ? [canvasData.boundary] : []);
+  const nodeMap = new Map<string, any>(canvasData.nodes.map((n: any) => [n.id, n]));
+
+  const renderNode = (node: any, indent = '') => {
     const nid = node.id;
     const d = node.data;
     const ntype = d.type;
@@ -619,15 +756,64 @@ export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string
     const tech = d.technology || '';
 
     if (ntype === 'person') {
-      lines.push(`Person(p_${nid}, "${name}", "${desc}")`);
+      return `${indent}Person(p_${nid}, "${name}", "${desc}")`;
     } else if (ntype === 'softwareSystem') {
-      lines.push(`System(s_${nid}, "${name}", "${desc}")`);
+      return `${indent}System(s_${nid}, "${name}", "${desc}")`;
     } else if (ntype === 'container') {
-      lines.push(`Container(c_${nid}, "${name}", "${tech}", "${desc}")`);
+      return `${indent}Container(c_${nid}, "${name}", "${tech}", "${desc}")`;
     } else if (ntype === 'component') {
-      lines.push(`Component(comp_${nid}, "${name}", "${tech}", "${desc}")`);
+      return `${indent}Component(comp_${nid}, "${name}", "${tech}", "${desc}")`;
     } else {
-      lines.push(`System(n_${nid}, "${name}", "${desc}")`);
+      return `${indent}System(n_${nid}, "${name}", "${desc}")`;
+    }
+  };
+
+  const renderedNodeIds = new Set<string>();
+
+  if (boundaries.length === 2 && boundaries[1].parentBoundaryId === boundaries[0].id) {
+    const sysB = boundaries[0];
+    const contB = boundaries[1];
+    const contChildSet = new Set(contB.childIds);
+
+    lines.push(`System_Boundary(b_${sysB.id}, "${sysB.name}") {`);
+    lines.push(`  Container_Boundary(b_${contB.id}, "${contB.name}") {`);
+    for (const cid of contB.childIds) {
+      const node = nodeMap.get(cid);
+      if (node) {
+        lines.push(renderNode(node, '    '));
+        renderedNodeIds.add(cid);
+      }
+    }
+    lines.push('  }');
+
+    for (const cid of sysB.childIds) {
+      if (!contChildSet.has(cid)) {
+        const node = nodeMap.get(cid);
+        if (node) {
+          lines.push(renderNode(node, '  '));
+          renderedNodeIds.add(cid);
+        }
+      }
+    }
+    lines.push('}');
+  } else {
+    for (const b of boundaries) {
+      const macro = b.type === 'container' ? 'Container_Boundary' : 'System_Boundary';
+      lines.push(`${macro}(b_${b.id}, "${b.name}") {`);
+      for (const cid of b.childIds) {
+        const node = nodeMap.get(cid);
+        if (node && !renderedNodeIds.has(cid)) {
+          lines.push(renderNode(node, '  '));
+          renderedNodeIds.add(cid);
+        }
+      }
+      lines.push('}');
+    }
+  }
+
+  for (const node of canvasData.nodes) {
+    if (!renderedNodeIds.has(node.id)) {
+      lines.push(renderNode(node));
     }
   }
 

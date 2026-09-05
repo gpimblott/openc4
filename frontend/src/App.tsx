@@ -33,7 +33,9 @@ import {
 } from 'lucide-react';
 
 import C4Node from './components/C4Node';
+import C4BoundaryNode from './components/C4BoundaryNode';
 import { getLayoutedElements, updateEdgesClosestHandles } from './utils/layout';
+import { computeBoundaryNodes, type BoundaryInfo } from './utils/boundary';
 import { registerStructurizrDsl } from './utils/structurizrDsl';
 import { CatalogTab } from './components/CatalogTab';
 import { VisualDiffModal } from './components/VisualDiffModal';
@@ -41,9 +43,15 @@ import { InspectionDrawer } from './components/InspectionDrawer';
 import type { InspectionFinding } from './components/InspectionDrawer';
 import { ExportModal } from './components/ExportModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
+import { PublishVersionModal } from './components/PublishVersionModal';
+import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
+import { RestoreVersionModal } from './components/RestoreVersionModal';
+import { Toast } from './components/Toast';
+import type { ToastMessage } from './components/Toast';
 
 const nodeTypes = {
   c4Node: C4Node,
+  c4Boundary: C4BoundaryNode,
 };
 
 const defaultEdgeOptions = {
@@ -112,6 +120,12 @@ export function App() {
   const [pendingDeleteEdges, setPendingDeleteEdges] = useState<Edge[]>([]);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Dialog modal states
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [isCreateWorkspaceModalOpen, setIsCreateWorkspaceModalOpen] = useState(false);
+  const [restoreTargetVersion, setRestoreTargetVersion] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // Debounce ref for live auto-compilation
   const compileTimerRef = useRef<any>(null);
@@ -191,6 +205,30 @@ export function App() {
     loadWorkspaces();
   }, [loadWorkspaces]);
 
+  const boundariesRef = useRef<BoundaryInfo[]>([]);
+
+  const applyCanvasData = useCallback(
+    (canvas: any, targetViewKey?: string) => {
+      if (!canvas) return;
+      const rawNodes = canvas.nodes || [];
+      const rawEdges = canvas.edges || [];
+      const boundaries = canvas.boundaries || (canvas.boundary ? [canvas.boundary] : []);
+      boundariesRef.current = boundaries;
+
+      const boundaryNodes = computeBoundaryNodes(rawNodes, boundaries);
+      const allNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...rawNodes] : rawNodes;
+      const updatedEdges = updateEdgesClosestHandles(allNodes, rawEdges);
+
+      setNodes(allNodes);
+      setEdges(updatedEdges);
+      setAvailableViews(canvas.availableViews || []);
+      if (targetViewKey || canvas.viewKey) {
+        setCurrentViewKey(targetViewKey || canvas.viewKey);
+      }
+    },
+    [setNodes, setEdges]
+  );
+
   // Load active workspace studio data
   const loadStudioData = useCallback((wsId: number, viewKey?: string) => {
     const url = viewKey
@@ -209,17 +247,11 @@ export function App() {
         }
 
         if (data.canvas) {
-          const rawNodes = data.canvas.nodes || [];
-          const rawEdges = data.canvas.edges || [];
-          const updatedEdges = updateEdgesClosestHandles(rawNodes, rawEdges);
-          setNodes(rawNodes);
-          setEdges(updatedEdges);
-          setAvailableViews(data.canvas.availableViews || []);
-          setCurrentViewKey(viewKey || data.canvas.viewKey);
+          applyCanvasData(data.canvas, viewKey);
         }
       })
       .catch((err) => console.error('Failed to load studio data', err));
-  }, [setNodes, setEdges]);
+  }, [applyCanvasData]);
 
   useEffect(() => {
     if (currentWorkspaceId) {
@@ -259,13 +291,8 @@ export function App() {
         .then((resData) => {
           if (resData.success && resData.canvas) {
             setParseError(null);
-            const rawNodes = resData.canvas.nodes || [];
-            const rawEdges = resData.canvas.edges || [];
-            const updatedEdges = updateEdgesClosestHandles(rawNodes, rawEdges);
-            setNodes(rawNodes);
-            setEdges(updatedEdges);
+            applyCanvasData(resData.canvas, currentViewKey);
             setFindings(resData.findings || []);
-            setAvailableViews(resData.canvas.availableViews || []);
             if (resData.workspaceName) {
               setWorkspaceInfo((prev: any) => (prev ? { ...prev, name: resData.workspaceName } : prev));
               setWorkspaces((prev) =>
@@ -283,12 +310,14 @@ export function App() {
   // Save workspace
   const handleSave = () => {
     setIsSaving(true);
-    // Collect updated coordinates
+    // Collect updated coordinates (only for real elements, not boundary)
     const layoutCoords: Record<string, Record<string, { x: number; y: number }>> = {};
     if (currentViewKey) {
       layoutCoords[currentViewKey] = {};
       nodes.forEach((n) => {
-        layoutCoords[currentViewKey][n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
+        if (n.type !== 'c4Boundary') {
+          layoutCoords[currentViewKey][n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
+        }
       });
     }
 
@@ -319,7 +348,7 @@ export function App() {
 
   // Auto-Layout
   const handleAutoLayout = (direction: 'TB' | 'LR') => {
-    const layouted = getLayoutedElements(nodes, edges, direction);
+    const layouted = getLayoutedElements(nodes, edges, direction, boundariesRef.current);
     setNodes([...layouted.nodes]);
     setEdges([...layouted.edges]);
   };
@@ -336,13 +365,8 @@ export function App() {
       .then((resData) => {
         if (resData.success && resData.canvas) {
           setParseError(null);
-          const rawNodes = resData.canvas.nodes || [];
-          const rawEdges = resData.canvas.edges || [];
-          const updatedEdges = updateEdgesClosestHandles(rawNodes, rawEdges);
-          setNodes(rawNodes);
-          setEdges(updatedEdges);
+          applyCanvasData(resData.canvas, viewKey);
           setFindings(resData.findings || []);
-          setAvailableViews(resData.canvas.availableViews || []);
         } else if (resData.parseError) {
           setParseError(resData.parseError);
         }
@@ -379,29 +403,29 @@ export function App() {
         setDslCode(resData.dsl);
         setParseError(null);
         if (resData.canvas) {
-          const rawNodes = resData.canvas.nodes || [];
-          const rawEdges = resData.canvas.edges || [];
-          const updatedEdges = updateEdgesClosestHandles(rawNodes, rawEdges);
-          setNodes(rawNodes);
-          setEdges(updatedEdges);
-          setAvailableViews(resData.canvas.availableViews || []);
-          if (
+          const targetKey =
             resData.canvas.availableViews &&
             !resData.canvas.availableViews.some((v: any) => v.key === currentViewKey)
-          ) {
-            setCurrentViewKey(resData.canvas.viewKey);
-          }
+              ? resData.canvas.viewKey
+              : currentViewKey;
+          applyCanvasData(resData.canvas, targetKey);
         }
         setFindings(resData.findings || []);
         setIsConfirmDeleteOpen(false);
         setPendingDeleteNodes([]);
         setPendingDeleteEdges([]);
       } else {
-        alert(`Failed to delete: ${resData.detail || 'Unknown error'}`);
+        setToast({
+          type: 'error',
+          message: `Failed to delete: ${resData.detail || 'Unknown error'}`,
+        });
       }
     } catch (err: any) {
       console.error('Delete error', err);
-      alert(`Delete error: ${err.message}`);
+      setToast({
+        type: 'error',
+        message: `Delete error: ${err.message}`,
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -410,7 +434,10 @@ export function App() {
   // Intercept ReactFlow delete key (Backspace/Delete)
   const onBeforeDelete = useCallback(
     async ({ nodes: n, edges: e }: { nodes: Node[]; edges: Edge[] }) => {
-      requestDelete(n, e);
+      const filteredNodes = n.filter((node) => node.type !== 'c4Boundary');
+      if (filteredNodes.length > 0 || e.length > 0) {
+        requestDelete(filteredNodes, e);
+      }
       return false; // Prevent local deletion; wait for modal confirmation
     },
     [requestDelete]
@@ -418,6 +445,7 @@ export function App() {
 
   // Double-click drill down
   const onNodeDoubleClick = (_: React.MouseEvent, node: Node) => {
+    if (node.type === 'c4Boundary') return;
     const nodeData = node.data as any;
     if (nodeData.type === 'softwareSystem') {
       const containerView = availableViews.find((v) => v.type === 'container');
@@ -432,29 +460,48 @@ export function App() {
     }
   };
 
-  // Re-calculate closest edge handles when a node is dragged and dropped
-  const onNodeDragStop = useCallback(
+  // Dynamically update boundary outline while dragging
+  const onNodeDrag = useCallback(
     (_: any, node: Node) => {
+      if (node.type === 'c4Boundary') return;
       setNodes((currentNodes) => {
         const updatedNodes = currentNodes.map((n) =>
           n.id === node.id ? { ...n, position: node.position } : n
         );
-        setEdges((currentEdges) => updateEdgesClosestHandles(updatedNodes, currentEdges));
-        return updatedNodes;
+        const boundaryNodes = computeBoundaryNodes(updatedNodes, boundariesRef.current);
+        return [...boundaryNodes, ...updatedNodes.filter((n) => n.type !== 'c4Boundary')];
+      });
+    },
+    [setNodes]
+  );
+
+  // Re-calculate closest edge handles when a node is dragged and dropped
+  const onNodeDragStop = useCallback(
+    (_: any, node: Node) => {
+      if (node.type === 'c4Boundary') return;
+      setNodes((currentNodes) => {
+        const updatedNodes = currentNodes.map((n) =>
+          n.id === node.id ? { ...n, position: node.position } : n
+        );
+        const boundaryNodes = computeBoundaryNodes(updatedNodes, boundariesRef.current);
+        const nextNodes = [...boundaryNodes, ...updatedNodes.filter((n) => n.type !== 'c4Boundary')];
+        setEdges((currentEdges) => updateEdgesClosestHandles(nextNodes, currentEdges));
+        return nextNodes;
       });
     },
     [setNodes, setEdges]
   );
 
-  // Load Catalog data
-  const loadCatalog = useCallback(() => {
-    fetch('/api/enterprise/catalog')
+  // Load Catalog data (latest component versions for current workspace)
+  const loadCatalog = useCallback((wsId?: number) => {
+    const targetWsId = wsId ?? currentWorkspaceId;
+    fetch(`/api/enterprise/catalog?latest=true&workspaceId=${targetWsId}`)
       .then((res) => res.json())
       .then((data) => {
         setCatalog(data);
       })
       .catch((err) => console.error('Failed to load catalog', err));
-  }, []);
+  }, [currentWorkspaceId]);
 
   useEffect(() => {
     loadCatalog();
@@ -494,19 +541,6 @@ export function App() {
     setDslCode(updated);
     handleEditorChange(updated);
     setLeftPanelTab('dsl');
-  };
-
-  // Version calculation helper
-  const incrementPatchVersion = (ver?: string): string => {
-    if (!ver) return '1.1.0';
-    const parts = ver.split('.');
-    if (parts.length === 3 && !isNaN(Number(parts[2]))) {
-      return `${parts[0]}.${parts[1]}.${Number(parts[2]) + 1}`;
-    }
-    if (parts.length === 2 && !isNaN(Number(parts[1]))) {
-      return `${parts[0]}.${Number(parts[1]) + 1}.0`;
-    }
-    return `${ver}.1`;
   };
 
   // Load a historical version snapshot into editor
@@ -549,29 +583,32 @@ export function App() {
   };
 
   // Restore past version as active workspace model
-  const handleRestoreVersion = (version: string) => {
-    if (!confirm(`Are you sure you want to restore workspace to version ${version}? This will replace the active workspace DSL.`)) {
-      return;
-    }
-
-    fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}/load`, {
-      method: 'POST',
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          alert(`Restored workspace to version ${version}`);
-          setSelectedVersion('current');
-          loadStudioData(currentWorkspaceId);
-          loadWorkspaces();
-        } else {
-          alert(`Failed to restore: ${data.detail || 'Unknown error'}`);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to restore version', err);
-        alert(`Restore error: ${err.message}`);
+  const handleRestoreVersionSubmit = async (version: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}/load`, {
+        method: 'POST',
       });
+      const data = await res.json();
+      if (data.success) {
+        setToast({
+          type: 'success',
+          message: `Restored workspace to version ${version}`,
+        });
+        setSelectedVersion('current');
+        loadStudioData(currentWorkspaceId);
+        loadWorkspaces();
+        return true;
+      } else {
+        throw new Error(data.detail || 'Failed to restore version snapshot');
+      }
+    } catch (err: any) {
+      console.error('Failed to restore version', err);
+      setToast({
+        type: 'error',
+        message: `Restore error: ${err.message}`,
+      });
+      throw err;
+    }
   };
 
   // Open Visual Diff
@@ -591,58 +628,69 @@ export function App() {
   };
 
   // Publish workspace
-  const handlePublish = () => {
-    const suggested = incrementPatchVersion(workspaceInfo?.version);
-    const ver = prompt(`Enter release version (current is v${workspaceInfo?.version || '1.0.0'}):`, suggested);
-    if (!ver) return;
-    const msg = prompt('Enter publish release notes:', 'Updated architecture components') || '';
-
-    fetch(`/api/workspaces/${currentWorkspaceId}/publish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: ver, commitMessage: msg, dsl: dslCode }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          alert(`Workspace published as v${ver} and systems registered to Enterprise Catalog!`);
-          setSelectedVersion('current');
-          loadStudioData(currentWorkspaceId);
-          loadWorkspaces();
-          loadCatalog();
-        } else {
-          alert(`Publish failed: ${data.detail || 'Unknown error'}`);
-        }
-      })
-      .catch((err) => {
-        console.error('Publish error', err);
-        alert(`Publish error: ${err.message}`);
+  const handlePublishSubmit = async (version: string, commitMessage: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/workspaces/${currentWorkspaceId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version, commitMessage, dsl: dslCode }),
       });
+      const data = await res.json();
+      if (data.success) {
+        setToast({
+          type: 'success',
+          message: `Workspace published as v${version} and registered to Enterprise Catalog!`,
+        });
+        setSelectedVersion('current');
+        loadStudioData(currentWorkspaceId);
+        loadWorkspaces();
+        loadCatalog();
+        return true;
+      } else {
+        throw new Error(data.detail || 'Publish failed');
+      }
+    } catch (err: any) {
+      console.error('Publish error', err);
+      throw err;
+    }
   };
 
   // Create a new architecture workspace
-  const handleCreateWorkspace = () => {
-    const name = prompt('Enter new workspace name:', 'New Architecture Workspace');
-    if (!name) return;
-    const desc = prompt('Enter workspace description (optional):', 'Architecture model') || '';
-
-    fetch('/api/workspaces', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description: desc }),
-    })
-      .then((res) => res.json())
-      .then((newWs) => {
-        if (newWs && newWs.id) {
-          loadWorkspaces();
-          setCurrentWorkspaceId(newWs.id);
-          setSelectedVersion('current');
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to create workspace', err);
-        alert(`Failed to create workspace: ${err.message}`);
+  const handleCreateWorkspaceSubmit = async (
+    name: string,
+    description: string,
+    template: 'context' | 'blank'
+  ): Promise<boolean> => {
+    try {
+      const payload: any = { name, description };
+      if (template === 'blank') {
+        payload.dsl = `workspace "${name}" "${description}" {\n    model {\n    }\n    views {\n    }\n}`;
+      }
+      const res = await fetch('/api/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to create workspace');
+      }
+      const newWs = await res.json();
+      if (newWs && newWs.id) {
+        loadWorkspaces();
+        setCurrentWorkspaceId(newWs.id);
+        setSelectedVersion('current');
+        setToast({
+          type: 'success',
+          message: `Workspace "${name}" created successfully.`,
+        });
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error('Failed to create workspace', err);
+      throw err;
+    }
   };
 
   return (
@@ -678,7 +726,7 @@ export function App() {
             </select>
 
             <button
-              onClick={handleCreateWorkspace}
+              onClick={() => setIsCreateWorkspaceModalOpen(true)}
               title="Create New Architecture Workspace"
               className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
             >
@@ -795,7 +843,7 @@ export function App() {
                             </button>
                             <button
                               onClick={() => {
-                                handleRestoreVersion(ver.version);
+                                setRestoreTargetVersion(ver.version);
                                 setIsVersionDropdownOpen(false);
                               }}
                               className="flex-1 py-1 text-[10px] font-semibold bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white rounded border border-purple-500/30 transition text-center"
@@ -888,9 +936,9 @@ export function App() {
 
           {/* Publish Button */}
           <button
-            onClick={handlePublish}
+            onClick={() => setIsPublishModalOpen(true)}
             title="Publish Release Version to Catalog"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition shrink-0 cursor-pointer"
           >
             <UploadCloud className="w-3.5 h-3.5 shrink-0" />
             <span>Publish</span>
@@ -1061,6 +1109,7 @@ export function App() {
           {leftPanelTab === 'catalog' && (
             <CatalogTab
               catalog={catalog}
+              currentWorkspaceId={currentWorkspaceId}
               onRefresh={loadCatalog}
               onInsertDsl={handleInsertDsl}
             />
@@ -1118,13 +1167,13 @@ export function App() {
             </button>
 
             {/* Delete button when nodes or edges are selected */}
-            {(nodes.some((n) => n.selected) || edges.some((e) => e.selected)) && (
+            {(nodes.some((n) => n.selected && n.type !== 'c4Boundary') || edges.some((e) => e.selected)) && (
               <>
                 <div className="h-3.5 w-px bg-slate-700" />
                 <button
                   onClick={() =>
                     requestDelete(
-                      nodes.filter((n) => n.selected),
+                      nodes.filter((n) => n.selected && n.type !== 'c4Boundary'),
                       edges.filter((e) => e.selected)
                     )
                   }
@@ -1134,7 +1183,7 @@ export function App() {
                   <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                   <span>
                     Delete (
-                    {nodes.filter((n) => n.selected).length +
+                    {nodes.filter((n) => n.selected && n.type !== 'c4Boundary').length +
                       edges.filter((e) => e.selected).length}
                     )
                   </span>
@@ -1151,6 +1200,7 @@ export function App() {
             onEdgesChange={onEdgesChange}
             onBeforeDelete={onBeforeDelete}
             onNodeDoubleClick={onNodeDoubleClick}
+            onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             nodeTypes={nodeTypes}
             fitView
@@ -1164,7 +1214,10 @@ export function App() {
               className="!bg-slate-950 !border-slate-800"
             />
             <MiniMap
-              nodeColor={(n: any) => n.data?.backgroundColor || '#1168bd'}
+              nodeColor={(n: any) => {
+                if (n.type === 'c4Boundary') return 'transparent';
+                return n.data?.backgroundColor || '#1168bd';
+              }}
               className="!bg-slate-950 !border-slate-800 rounded-xl"
             />
             <Panel
@@ -1213,6 +1266,29 @@ export function App() {
         workspaceId={currentWorkspaceId}
         currentViewKey={currentViewKey}
       />
+
+      <PublishVersionModal
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+        currentVersion={workspaceInfo?.version || '1.0.0'}
+        onPublish={handlePublishSubmit}
+      />
+
+      <CreateWorkspaceModal
+        isOpen={isCreateWorkspaceModalOpen}
+        onClose={() => setIsCreateWorkspaceModalOpen(false)}
+        onCreate={handleCreateWorkspaceSubmit}
+      />
+
+      <RestoreVersionModal
+        isOpen={!!restoreTargetVersion}
+        onClose={() => setRestoreTargetVersion(null)}
+        version={restoreTargetVersion}
+        versionDetails={versions.find((v) => v.version === restoreTargetVersion)}
+        onRestore={handleRestoreVersionSubmit}
+      />
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

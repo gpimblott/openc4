@@ -58,11 +58,15 @@ export const getClosestConnectionHandles = (
   return { sourceHandle: bestSource, targetHandle: bestTarget };
 };
 
+import { computeBoundaryNodes, type BoundaryInfo } from './boundary';
+
 /**
  * Updates all edges with optimal sourceHandle and targetHandle based on current node positions.
  */
 export const updateEdgesClosestHandles = (nodes: Node[], edges: Edge[]): Edge[] => {
-  const nodeMap = new Map<string, Node>(nodes.map((n) => [n.id, n]));
+  const nodeMap = new Map<string, Node>(
+    nodes.filter((n) => n.type !== 'c4Boundary').map((n) => [n.id, n])
+  );
 
   return edges.map((edge) => {
     const sourceNode = nodeMap.get(edge.source);
@@ -92,7 +96,8 @@ export const updateEdgesClosestHandles = (nodes: Node[], edges: Edge[]): Edge[] 
 export const getLayoutedElements = (
   nodes: Node[],
   edges: Edge[],
-  direction: 'TB' | 'LR' = 'TB'
+  direction: 'TB' | 'LR' = 'TB',
+  boundaries?: BoundaryInfo[] | null
 ) => {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -104,7 +109,9 @@ export const getLayoutedElements = (
     ranksep: isHorizontal ? 120 : 100,
   });
 
-  nodes.forEach((node) => {
+  const nonBoundaryNodes = nodes.filter((node) => node.type !== 'c4Boundary');
+
+  nonBoundaryNodes.forEach((node) => {
     const width = node.measured?.width ?? (node.width as number) ?? DEFAULT_NODE_WIDTH;
     const height = node.measured?.height ?? (node.height as number) ?? DEFAULT_NODE_HEIGHT;
     dagreGraph.setNode(node.id, { width, height });
@@ -116,7 +123,7 @@ export const getLayoutedElements = (
 
   dagre.layout(dagreGraph);
 
-  const layoutedNodes = nodes.map((node) => {
+  const layoutedElements = nonBoundaryNodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
     const width = node.measured?.width ?? (node.width as number) ?? DEFAULT_NODE_WIDTH;
     const height = node.measured?.height ?? (node.height as number) ?? DEFAULT_NODE_HEIGHT;
@@ -128,6 +135,9 @@ export const getLayoutedElements = (
       },
     };
   });
+
+  const boundaryNodes = computeBoundaryNodes(layoutedElements, boundaries);
+  const layoutedNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...layoutedElements] : layoutedElements;
 
   const layoutedEdges = updateEdgesClosestHandles(layoutedNodes, edges);
 

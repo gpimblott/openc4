@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDsl } from '../src/engine/parser.js';
-import { compileViewToCanvas } from '../src/engine/compiler.js';
+import { compileViewToCanvas, exportToMermaid, exportToPlantUML } from '../src/engine/compiler.js';
 import { DEFAULT_SAMPLE_DSL } from '../src/api/app.js';
 
 describe('C4 View Scoping', () => {
@@ -53,6 +53,12 @@ describe('C4 View Scoping', () => {
 
     // Edges between containers and external elements
     expect(canvas.edges.length).toBeGreaterThanOrEqual(4);
+
+    // Parent software system boundary is provided
+    expect(canvas.boundary).not.toBeNull();
+    expect(canvas.boundary.name).toBe('Internet Banking System');
+    expect(canvas.boundary.type).toBe('softwareSystem');
+    expect(canvas.boundary.childIds.length).toBe(3);
   });
 
   it('correctly scopes Components view', () => {
@@ -84,5 +90,32 @@ describe('C4 View Scoping', () => {
 
     // Edges connect to components
     expect(canvas.edges.length).toBeGreaterThanOrEqual(3);
+
+    // Nested boundaries are provided: Software System -> Container
+    expect(canvas.boundaries).toHaveLength(2);
+    expect(canvas.boundaries[0].name).toBe('Internet Banking System');
+    expect(canvas.boundaries[0].type).toBe('softwareSystem');
+    expect(canvas.boundaries[1].name).toBe('API Application');
+    expect(canvas.boundaries[1].type).toBe('container');
+    expect(canvas.boundaries[1].technology).toBe('TypeScript / Hono');
+    expect(canvas.boundaries[1].parentBoundaryId).toBe(canvas.boundaries[0].id);
+
+    // Backward compatible boundary points to primary container
+    expect(canvas.boundary).not.toBeNull();
+    expect(canvas.boundary.name).toBe('API Application');
+    expect(canvas.boundary.type).toBe('container');
+  });
+
+  it('exports Mermaid and PlantUML with nested parent boundary outline', () => {
+    const mmd = exportToMermaid(ws, 'Components');
+    expect(mmd).toContain('subgraph boundary_');
+    expect(mmd).toContain('Internet Banking System');
+    expect(mmd).toContain('API Application');
+
+    const puml = exportToPlantUML(ws, 'Components');
+    expect(puml).toContain('System_Boundary');
+    expect(puml).toContain('Container_Boundary');
+    expect(puml).toContain('Internet Banking System');
+    expect(puml).toContain('API Application');
   });
 });

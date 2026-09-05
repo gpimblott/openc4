@@ -531,7 +531,10 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   });
 
   app.get('/api/enterprise/catalog', (c) => {
-    return c.json(repo.getEnterpriseCatalog());
+    const latestOnly = c.req.query('latest') === 'true';
+    const wsIdParam = c.req.query('workspaceId');
+    const workspaceId = wsIdParam ? parseInt(wsIdParam, 10) : undefined;
+    return c.json(repo.getEnterpriseCatalog({ latestOnly, workspaceId }));
   });
 
   // ============================================================================

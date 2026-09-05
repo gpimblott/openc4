@@ -182,6 +182,22 @@ describe('API Endpoints', () => {
     expect(bankingItems.some((i: any) => i.version === '1.0.0')).toBe(true);
     expect(bankingItems.some((i: any) => i.version === '1.1.0')).toBe(true);
 
+    // Verify catalog with ?latest=true only returns the latest version
+    const latestCatRes = await app.request('/api/enterprise/catalog?latest=true');
+    const latestCatItems = await latestCatRes.json();
+    const latestBankingItems = latestCatItems.filter((item: any) => item.name === 'Internet Banking System');
+    expect(latestBankingItems.length).toBe(1);
+    expect(latestBankingItems[0].version).toBe('1.1.0');
+
+    // Verify catalog with workspaceId filter
+    const ws1CatRes = await app.request('/api/enterprise/catalog?workspaceId=1');
+    const ws1CatItems = await ws1CatRes.json();
+    expect(ws1CatItems.every((item: any) => item.workspaceId === 1)).toBe(true);
+
+    const ws999CatRes = await app.request('/api/enterprise/catalog?workspaceId=999');
+    const ws999CatItems = await ws999CatRes.json();
+    expect(ws999CatItems.length).toBe(0);
+
     // Verify version list and version snapshot retrieval
     const versionsRes = await app.request('/api/workspaces/1/versions');
     const versions = await versionsRes.json();

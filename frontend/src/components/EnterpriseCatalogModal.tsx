@@ -16,15 +16,50 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   catalog: CatalogItem[];
+  currentWorkspaceId?: number;
 }
 
-export const EnterpriseCatalogModal: React.FC<Props> = ({ isOpen, onClose, catalog }) => {
+export const EnterpriseCatalogModal: React.FC<Props> = ({ isOpen, onClose, catalog, currentWorkspaceId }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const filtered = catalog.filter((item) =>
+  const workspaceCatalogItems = currentWorkspaceId
+    ? catalog.filter((item) => item.workspaceId === currentWorkspaceId)
+    : catalog;
+
+  const latestCatalogItems = Object.values(
+    workspaceCatalogItems.reduce((acc: Record<string, CatalogItem>, item) => {
+      const existing = acc[item.name];
+      if (!existing) {
+        acc[item.name] = item;
+      } else {
+        const partsA = (item.version || '').replace(/^v/, '').split('.').map((p) => parseInt(p, 10));
+        const partsB = (existing.version || '').replace(/^v/, '').split('.').map((p) => parseInt(p, 10));
+        let isItemNewer = false;
+        const maxLen = Math.max(partsA.length, partsB.length);
+        for (let i = 0; i < maxLen; i++) {
+          const numA = isNaN(partsA[i]) ? 0 : partsA[i];
+          const numB = isNaN(partsB[i]) ? 0 : partsB[i];
+          if (numA > numB) {
+            isItemNewer = true;
+            break;
+          }
+          if (numA < numB) {
+            isItemNewer = false;
+            break;
+          }
+        }
+        if (isItemNewer || (!partsA.some((p, idx) => p !== partsB[idx]) && new Date(item.updatedAt) > new Date(existing.updatedAt))) {
+          acc[item.name] = item;
+        }
+      }
+      return acc;
+    }, {})
+  );
+
+  const filtered = latestCatalogItems.filter((item) =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.tags.toLowerCase().includes(searchTerm.toLowerCase())
