@@ -1,23 +1,22 @@
-# OpenC4 — Modern Enterprise Architecture & Structurizr Platform
+# OpenC4 — Open Source C4 Architecture Tool
 
-**OpenC4** is a modern, high-performance, open-source enterprise architecture platform designed for the **C4 model**. It is **100% compatible** with the **Structurizr DSL**, the **official Structurizr Web API** (`structurizr-cli`), and official **Structurizr JSON** schemas, while replacing the legacy, clunky JSP interface with a fluid, reactive, developer-friendly Web Studio.
+**OpenC4** is an open source C4 architecture tool designed to model, visualize, and document software architecture using the [C4 model](https://c4model.com/). It provides an interactive web-based studio, real-time diagram generation, and enterprise collaboration features while maintaining complete compatibility with ecosystem standards such as **Structurizr**, **Mermaid**, and **PlantUML**.
 
 ---
 
 ## Why OpenC4?
 
-The legacy Structurizr on-premises application (`structurizr/onpremises`) was officially archived (End of Life in March 2026). While the new monorepo (`structurizr/structurizr`) brought useful modules like `structurizr-mcp` and `structurizr-inspection`, the web application **remained on an outdated JSP / Servlet web container** with no live in-browser DSL editor, rigid layouts, and no federated enterprise model catalog.
+Modern software engineering requires architecture diagrams that are versionable, automated, and easy for both humans and AI tools to understand. OpenC4 acts as a unified open source hub for architecture-as-code:
 
-OpenC4 solves this by delivering:
-1. **Live Split-Screen Studio**: Monaco DSL editor with syntax highlighting, autocomplete, and sub-50ms live diagram rendering.
-2. **Interactive C4 Canvas**: Fluid React Flow canvas with pan, zoom, minimap, smart Dagre auto-layout, and non-destructive coordinate saving.
-3. **Deep C4 Drill-Down**: Double-click a System to drill into Containers; double-click a Container to drill into Components.
-4. **Enterprise Model Catalog**: Publish software systems to an organization-wide registry and import/reference them across team workspaces.
-5. **Publishing & Visual Diffing**: Versioned release lifecycle (`Draft` $\rightarrow$ `Published`) with visual diffs highlighting added, modified, and removed components.
-6. **100% Structurizr REST API Compatibility**: Works seamlessly with `structurizr-cli push` and `structurizr-cli pull`.
-7. **Native Model Context Protocol (MCP)**: Built-in `/mcp` JSON-RPC endpoint for AI assistants (Gemini, Claude, ChatGPT) to validate, inspect, and generate architecture models.
-8. **Architecture Inspection Linter**: Automated rule checker flagging missing descriptions, missing technologies, and orphaned elements.
-9. **Multi-Format Export**: One-click export to Mermaid, C4-PlantUML, Structurizr JSON, and Structurizr DSL.
+1. **Live Split-Screen Studio**: Monaco DSL editor with syntax highlighting, auto-completion, and sub-50ms live diagram rendering.
+2. **Interactive C4 Canvas**: Fluid React Flow canvas with pan, zoom, minimap, smart Dagre auto-layout, and drag-and-drop coordinate persistence.
+3. **Deep C4 Drill-Down**: Double-click any System to drill down into Containers, and Containers to drill down into Components.
+4. **Broad Compatibility**: Native compatibility with **Structurizr** DSL and CLI, seamless export to **Mermaid** and **PlantUML**, and exchange via standard JSON.
+5. **Enterprise Model Catalog**: Publish software systems to an organization-wide catalog and reference shared systems across distinct workspaces.
+6. **Publishing & Visual Diffing**: Versioned release lifecycles (`Draft` → `Published`) with visual diffs highlighting added, modified, and removed elements.
+7. **Native Model Context Protocol (MCP)**: Built-in `/mcp` JSON-RPC endpoint allowing AI assistants (Gemini, Claude, ChatGPT) to validate, inspect, query, and generate models.
+8. **Architecture Quality Linter**: Automated rule checker identifying orphaned elements, missing descriptions, or untyped technologies.
+9. **Multi-Format Export**: One-click export to Mermaid, C4-PlantUML, Structurizr JSON, SVG, PNG, and Structurizr DSL.
 
 ---
 
@@ -31,7 +30,7 @@ flowchart TB
         Browser["Modern Web Studio (Browser)"]
     end
 
-    subgraph Server["OpenC4 Platform (TypeScript: Hono + React)"]
+    subgraph Server["OpenC4 (TypeScript: Hono + React)"]
         direction TB
         subgraph Gateway["API Protocols"]
             REST["Structurizr REST API (/api/workspace/*)"]
@@ -65,11 +64,31 @@ flowchart TB
 
 ---
 
+## Compatibility & Interoperability
+
+OpenC4 is built to fit smoothly into existing engineering workflows and documentation stacks:
+
+### Structurizr Compatibility
+- **Structurizr DSL**: Full parsing and compilation of workspaces defined in the Structurizr DSL.
+- **`structurizr-cli` & REST API**: Native implementation of the Structurizr Web API (`/api/workspace/{id}`), enabling drop-in compatibility with `structurizr-cli push` and `structurizr-cli pull` in CI/CD pipelines.
+- **Structurizr JSON**: Full import and export compatibility conforming to Structurizr JSON schemas.
+- **Structurizr MCP**: Built-in support for the Structurizr Model Context Protocol specification for AI agents.
+
+### Mermaid Compatibility
+- **Mermaid Export**: One-click export of C4 Context, Container, and Component views into standard Mermaid diagram syntax.
+- **Git & Markdown Native**: Embed exported Mermaid diagrams directly into GitHub/GitLab READMEs, pull requests, wikis, Notion, and documentation sites (VitePress, Docusaurus, MkDocs).
+
+### PlantUML & Other Formats
+- **C4-PlantUML**: Export diagrams in C4-PlantUML syntax for legacy documentation pipelines.
+- **Vector & Raster Images**: Export high-resolution SVG and PNG diagrams for presentations and documentation.
+
+---
+
 ## Quick Start
 
-### Option 1: Run Locally (Pure Node.js / TypeScript)
+### Option 1: Run Locally (Node.js / TypeScript)
 
-1. **Start the platform:**
+1. **Start the application:**
    ```bash
    ./run.sh
    ```
@@ -88,10 +107,9 @@ docker compose up --build
 
 ---
 
-## Structurizr Ecosystem Compatibility
+## Using `structurizr-cli` with OpenC4
 
-### Using `structurizr-cli`
-OpenC4 implements the official Structurizr Web API specification. You can push or pull workspaces directly:
+Because OpenC4 implements the Structurizr Web API specification, you can push or pull workspaces directly using `structurizr-cli`:
 
 ```bash
 # Push an existing workspace.dsl
@@ -108,7 +126,7 @@ API keys and secrets can be viewed or regenerated in the Web Studio or via:
 
 ## Model Context Protocol (MCP) Integration
 
-OpenC4 provides a built-in MCP server at `POST /mcp` compatible with the 2026 Structurizr MCP specification. AI agents can invoke:
+OpenC4 provides a built-in MCP server at `POST /mcp` compatible with the Structurizr MCP specification. AI agents can invoke:
 
 * `validate_dsl`: Validates Structurizr DSL syntax and returns AST metrics or error locations.
 * `inspect_workspace`: Runs automated quality checks and returns rule findings.
