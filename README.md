@@ -2,6 +2,10 @@
 
 **OpenC4** is an open source C4 architecture tool designed to model, visualize, and document software architecture using the [C4 model](https://c4model.com/). It provides an interactive web-based studio, real-time diagram generation, and enterprise collaboration features while maintaining complete compatibility with ecosystem standards such as **Structurizr**, **Mermaid**, and **PlantUML**.
 
+<p align="center">
+  <img src="docs/assets/openc4-studio-screenshot.png" alt="OpenC4 Web Studio Live Application" width="100%">
+</p>
+
 ---
 
 ## Why OpenC4?
@@ -22,46 +26,81 @@ Modern software engineering requires architecture diagrams that are versionable,
 
 ## Architecture Overview
 
+The OpenC4 architecture is modeled and validated using OpenC4's own Model Context Protocol (MCP) server. See [`openc4.dsl`](openc4.dsl) and the [`architecture/`](architecture/) directory for all model files and schemas.
+
+### 1. System Context Diagram
+Shows how architects, developers, and AI agents interact with the OpenC4 platform and external tools:
+
 ```mermaid
 flowchart TB
-    subgraph Clients["Clients & Tools"]
-        CLI["OpenC4 CLI / CI/CD"]
-        AI["AI Assistants (via MCP)"]
-        Browser["Modern Web Studio (Browser)"]
-    end
-
-    subgraph Server["OpenC4 (TypeScript: Hono + React)"]
-        direction TB
-        subgraph Gateway["API Protocols"]
-            REST["OpenC4 REST API (/api/workspace/*)"]
-            MCP["Model Context Protocol (/mcp)"]
-            StudioAPI["Web Studio API (/api/*)"]
-        end
-
-        subgraph Core["C4 Engine"]
-            Parser["DSL Lexer & AST Parser"]
-            Compiler["Compiler (JSON, Canvas, Mermaid, PlantUML)"]
-            Inspection["Architecture Quality Linter"]
-            Diff["Visual & Semantic Diff Engine"]
-            Catalog["Enterprise Model Catalog"]
-        end
-
-        subgraph Storage["Persistence"]
-            DB[(SQLite)]
-        end
-    end
-
-    CLI --> REST
-    AI --> MCP
-    Browser --> StudioAPI
-    Browser --> REST
-
-    REST --> Core
-    MCP --> Core
-    StudioAPI --> Core
-    Core --> Storage
+    node_5["<b>OpenC4 Platform</b><br/>SOFTWARESYSTEM<br/><i>Modern open-source C4 architecture modeling tool, real-time diagram studio, and workspace server.</i>"]
+    node_1["<b>Software & Enterprise Architect</b><br/>PERSON<br/><i>Designs systems, models workspaces, manages enterprise catalog, and reviews visual diffs.</i>"]
+    node_2["<b>Software Engineer</b><br/>PERSON<br/><i>Navigates architecture diagrams, explores component designs, and exports Mermaid diagrams for documentation.</i>"]
+    node_3["<b>AI Assistant</b><br/>PERSON<br/><i>Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.</i>"]
+    node_17["<b>Structurizr CLI</b><br/>SOFTWARESYSTEM<br/><i>Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.</i>"]
+    node_18["<b>Documentation Sites</b><br/>SOFTWARESYSTEM<br/><i>GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams.</i>"]
+    node_1 -->|"Edits architecture DSL, views diagrams, and manages catalog [HTTPS]"| node_5
+    node_2 -->|"Explores system, container, and component diagrams [HTTPS]"| node_5
+    node_3 -->|"Invokes MCP tools to validate, inspect, query, and export models [JSON-RPC / HTTP]"| node_5
+    node_17 -->|"Pushes and pulls workspace models [HTTP / REST]"| node_5
+    node_5 -->|"Exports Mermaid diagrams to [Markdown]"| node_18
 ```
 
+### 2. Container Diagram
+Illustrates the internal containers: Web Studio (React + React Flow + Monaco), Backend Server (Node.js + Hono), and SQLite database:
+
+```mermaid
+flowchart TB
+    node_6["<b>Web Studio</b><br/>CONTAINER [React 19, TypeScript, Vite, React Flow, Monaco Editor, Tailwind CSS]<br/><i>Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, minimap, catalog browser, visual diffing, and export modals.</i>"]
+    node_7["<b>Backend Server</b><br/>CONTAINER [Node.js, TypeScript, Hono]<br/><i>REST API and MCP server handling workspace storage, compilation, validation, and CLI communication.</i>"]
+    node_16["<b>Database</b><br/>CONTAINER [SQLite]<br/><i>Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog.</i>"]
+    node_1["<b>Software & Enterprise Architect</b><br/>PERSON<br/><i>Designs systems, models workspaces, manages enterprise catalog, and reviews visual diffs.</i>"]
+    node_2["<b>Software Engineer</b><br/>PERSON<br/><i>Navigates architecture diagrams, explores component designs, and exports Mermaid diagrams for documentation.</i>"]
+    node_3["<b>AI Assistant</b><br/>PERSON<br/><i>Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.</i>"]
+    node_17["<b>Structurizr CLI</b><br/>SOFTWARESYSTEM<br/><i>Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.</i>"]
+    node_18["<b>Documentation Sites</b><br/>SOFTWARESYSTEM<br/><i>GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams.</i>"]
+    node_1 -->|"Edits architecture DSL, views diagrams, and manages catalog [HTTPS]"| node_6
+    node_2 -->|"Explores system, container, and component diagrams [HTTPS]"| node_6
+    node_3 -->|"Invokes MCP tools to validate, inspect, query, and export models [JSON-RPC / HTTP]"| node_7
+    node_17 -->|"Pushes and pulls workspace models [HTTP / REST]"| node_7
+    node_6 -->|"Fetches workspaces, saves layout coordinates, and manages catalog [JSON / REST]"| node_7
+    node_6 -->|"Exports Mermaid diagrams to [Markdown]"| node_18
+    node_7 -->|"Reads and writes data [SQL / better-sqlite3]"| node_16
+```
+
+### 3. Backend Component Diagram
+Shows the modular components inside the OpenC4 backend server:
+
+```mermaid
+flowchart TB
+    node_8["<b>Workspace Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>Handles workspace CRUD, drafts, version publishing, locks, and enterprise catalog APIs.</i>"]
+    node_9["<b>Structurizr CLI Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>Implements official Structurizr Web API endpoints (/api/workspace/*) for push/pull CLI interoperability.</i>"]
+    node_10["<b>MCP Controller</b><br/>COMPONENT [Hono Route Handler]<br/><i>JSON-RPC endpoint (/mcp) implementing Model Context Protocol tools (validate_dsl, inspect_workspace, export_diagram, query_model).</i>"]
+    node_11["<b>DSL Lexer & Parser</b><br/>COMPONENT [TypeScript Module]<br/><i>Tokenizes and parses Structurizr DSL source into typed AST models.</i>"]
+    node_12["<b>C4 Model Compiler</b><br/>COMPONENT [TypeScript Module]<br/><i>Compiles AST into Structurizr JSON, Mermaid, PlantUML, and React Flow canvas layouts.</i>"]
+    node_13["<b>Architecture Linter</b><br/>COMPONENT [TypeScript Module]<br/><i>Automated rule checker identifying orphaned elements, missing metadata, and implied conflicts.</i>"]
+    node_14["<b>Visual Diff Engine</b><br/>COMPONENT [TypeScript Module]<br/><i>Compares workspace versions and computes added, modified, and removed elements.</i>"]
+    node_15["<b>Workspace Repository</b><br/>COMPONENT [TypeScript Class / better-sqlite3]<br/><i>Manages SQLite persistence for workspaces, revisions, API keys, locks, and catalog entries.</i>"]
+    node_3["<b>AI Assistant</b><br/>PERSON<br/><i>Interacts via Model Context Protocol (MCP) to validate DSL, query models, and inspect architecture rules.</i>"]
+    node_17["<b>Structurizr CLI</b><br/>SOFTWARESYSTEM<br/><i>Official command-line tool for pushing/pulling DSL models in CI/CD pipelines.</i>"]
+    node_6["<b>Web Studio</b><br/>CONTAINER [React 19, TypeScript, Vite, React Flow, Monaco Editor, Tailwind CSS]<br/><i>Single-Page Application providing live split-screen DSL editing, interactive React Flow canvas, minimap, catalog browser, visual diffing, and export modals.</i>"]
+    node_16["<b>Database</b><br/>CONTAINER [SQLite]<br/><i>Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog.</i>"]
+    node_3 -->|"Invokes MCP tools to validate, inspect, query, and export models [JSON-RPC / HTTP]"| node_10
+    node_17 -->|"Pushes and pulls workspace models [HTTP / REST]"| node_9
+    node_6 -->|"Fetches workspaces, saves layout coordinates, and manages catalog [JSON / REST]"| node_8
+    node_8 -->|"Queries and updates workspace records [Internal Call]"| node_15
+    node_8 -->|"Parses DSL source code [Internal Call]"| node_11
+    node_8 -->|"Compiles AST to JSON and layout coordinates [Internal Call]"| node_12
+    node_8 -->|"Computes visual differences between versions [Internal Call]"| node_14
+    node_9 -->|"Retrieves and saves workspace revisions [Internal Call]"| node_15
+    node_9 -->|"Parses uploaded DSL [Internal Call]"| node_11
+    node_9 -->|"Compiles workspace to Structurizr JSON [Internal Call]"| node_12
+    node_10 -->|"Parses DSL for validation [Internal Call]"| node_11
+    node_10 -->|"Inspects architectural rules and completeness [Internal Call]"| node_13
+    node_10 -->|"Exports diagrams to Mermaid, PlantUML, and JSON [Internal Call]"| node_12
+    node_10 -->|"Queries workspace models [Internal Call]"| node_15
+    node_15 -->|"Reads and writes data [SQL / better-sqlite3]"| node_16
+```
 ---
 
 ## Compatibility & Interoperability

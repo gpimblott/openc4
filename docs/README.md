@@ -5,10 +5,14 @@ This directory (`/docs`) contains the static documentation and showcase website 
 ## Features of this Website
 
 - **Zero-Build Static Architecture**: Runs natively on any static web host, specifically optimized for **GitHub Pages**.
+- **Live Application Visuals**:
+  - High-resolution screenshot of the running OpenC4 Web Studio in `docs/assets/openc4-studio-screenshot.png`.
+- **Complete OpenC4 Architecture Self-Model**:
+  - System Context, Container, and Backend Component diagrams compiled with OpenC4's native MCP server.
 - **Interactive Live Architecture Studio & Playground**:
   - Live split-screen showing C4 DSL on the left and an interactive C4 diagram on the right.
   - Interactive drill-down (Context &rarr; Container &rarr; Component &rarr; Deployment).
-  - Multiple preloaded architecture presets (Internet Banking, E-Commerce Microservices).
+  - Preloaded architecture presets (OpenC4 Platform self-model, Internet Banking, E-Commerce Microservices).
   - Export modal showing live-compiled Mermaid, C4-PlantUML, and Structurizr JSON.
 - **Comprehensive Step-by-Step Guides**:
   - Quickstart with Docker & local Node.js
