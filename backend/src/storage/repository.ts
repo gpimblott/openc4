@@ -130,6 +130,14 @@ export class WorkspaceRepository {
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
         UNIQUE(workspace_id, file_path)
       );
+
+      CREATE TABLE IF NOT EXISTS workspace_folders (
+        workspace_id INTEGER NOT NULL,
+        folder_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, folder_path),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
     `);
   }
 
@@ -500,5 +508,90 @@ export class WorkspaceRepository {
     );
     const res = stmt.run(cleanNew, now, workspaceId, cleanOld);
     return res.changes > 0;
+  }
+
+  getWorkspaceFolders(workspaceId: number): string[] {
+    const foldersSet = new Set<string>();
+
+    // 1. Explicitly created folders
+    const stmt = this.db.prepare(
+      'SELECT folder_path FROM workspace_folders WHERE workspace_id = ? ORDER BY folder_path ASC'
+    );
+    const rows = stmt.all(workspaceId) as any[];
+    for (const r of rows) {
+      foldersSet.add(r.folder_path);
+    }
+
+    // 2. Folders inferred from existing files
+    const files = this.getWorkspaceFiles(workspaceId);
+    for (const f of files) {
+      const parts = f.filePath.split('/');
+      if (parts.length > 1) {
+        for (let i = 1; i < parts.length; i++) {
+          foldersSet.add(parts.slice(0, i).join('/'));
+        }
+      }
+    }
+
+    return Array.from(foldersSet).sort();
+  }
+
+  createWorkspaceFolder(workspaceId: number, folderPath: string): string {
+    const cleanPath = folderPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!cleanPath) {
+      throw new Error('Folder path cannot be empty');
+    }
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO workspace_folders (workspace_id, folder_path, created_at)
+      VALUES (?, ?, ?)
+    `);
+    stmt.run(workspaceId, cleanPath, now);
+    return cleanPath;
+  }
+
+  deleteWorkspaceFolder(workspaceId: number, folderPath: string): boolean {
+    const cleanPath = folderPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!cleanPath) return false;
+
+    // Delete folder entry
+    const deleteFolderStmt = this.db.prepare(
+      'DELETE FROM workspace_folders WHERE workspace_id = ? AND (folder_path = ? OR folder_path LIKE ?)'
+    );
+    deleteFolderStmt.run(workspaceId, cleanPath, `${cleanPath}/%`);
+
+    // Delete files inside this folder (never deleting workspace.dsl)
+    const deleteFilesStmt = this.db.prepare(
+      'DELETE FROM workspace_files WHERE workspace_id = ? AND file_path LIKE ? AND file_path != ?'
+    );
+    deleteFilesStmt.run(workspaceId, `${cleanPath}/%`, 'workspace.dsl');
+
+    return true;
+  }
+
+  renameWorkspaceFolder(workspaceId: number, oldPath: string, newPath: string): boolean {
+    const cleanOld = oldPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const cleanNew = newPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!cleanOld || !cleanNew || cleanOld === cleanNew) return false;
+
+    const now = new Date().toISOString();
+
+    // 1. Rename folder in workspace_folders
+    const updateFolder = this.db.prepare(`
+      UPDATE workspace_folders
+      SET folder_path = ? || substr(folder_path, length(?) + 1)
+      WHERE workspace_id = ? AND (folder_path = ? OR folder_path LIKE ?)
+    `);
+    updateFolder.run(cleanNew, cleanOld, workspaceId, cleanOld, `${cleanOld}/%`);
+
+    // 2. Rename files inside folder
+    const updateFiles = this.db.prepare(`
+      UPDATE workspace_files
+      SET file_path = ? || substr(file_path, length(?) + 1), updated_at = ?
+      WHERE workspace_id = ? AND file_path LIKE ? AND file_path != ?
+    `);
+    updateFiles.run(cleanNew, cleanOld, now, workspaceId, `${cleanOld}/%`, 'workspace.dsl');
+
+    return true;
   }
 }

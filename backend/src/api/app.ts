@@ -213,7 +213,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       return c.json({ detail: 'Workspace not found' }, 404);
     }
     const files = repo.getWorkspaceFiles(workspaceId);
-    return c.json({ files });
+    const folders = repo.getWorkspaceFolders(workspaceId);
+    return c.json({ files, folders });
   });
 
   app.put('/api/workspaces/:id/files', async (c) => {
@@ -262,6 +263,63 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     try {
       const ok = repo.renameWorkspaceFile(workspaceId, oldPath, newPath);
       return c.json({ success: ok });
+    } catch (err: any) {
+      return c.json({ detail: err.message }, 400);
+    }
+  });
+
+  // Workspace Folders Endpoints
+  app.post('/api/workspaces/:id/folders', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const body = await c.req.json();
+    const folderPath = body.folderPath || body.path;
+    if (!folderPath) {
+      return c.json({ detail: 'Missing folderPath' }, 400);
+    }
+    try {
+      const folder = repo.createWorkspaceFolder(workspaceId, folderPath);
+      return c.json({ success: true, folder, folders: repo.getWorkspaceFolders(workspaceId) });
+    } catch (err: any) {
+      return c.json({ detail: err.message }, 400);
+    }
+  });
+
+  app.delete('/api/workspaces/:id/folders', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const pathParam = c.req.query('path') || (await c.req.json().catch(() => ({}))).path;
+    if (!pathParam) {
+      return c.json({ detail: 'Missing path parameter' }, 400);
+    }
+    try {
+      const ok = repo.deleteWorkspaceFolder(workspaceId, pathParam);
+      return c.json({ success: ok, folders: repo.getWorkspaceFolders(workspaceId) });
+    } catch (err: any) {
+      return c.json({ detail: err.message }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/folders/rename', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const body = await c.req.json();
+    const { oldPath, newPath } = body;
+    if (!oldPath || !newPath) {
+      return c.json({ detail: 'Missing oldPath or newPath' }, 400);
+    }
+    try {
+      const ok = repo.renameWorkspaceFolder(workspaceId, oldPath, newPath);
+      return c.json({ success: ok, folders: repo.getWorkspaceFolders(workspaceId) });
     } catch (err: any) {
       return c.json({ detail: err.message }, 400);
     }
@@ -345,6 +403,7 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       dsl,
       files: filesDict,
       filesList,
+      folders: repo.getWorkspaceFolders(workspaceId),
       entryPoint,
       parseError,
       canvas: canvasData,

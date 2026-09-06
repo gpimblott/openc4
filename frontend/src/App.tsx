@@ -102,6 +102,7 @@ export function App() {
   const activeFileRef = useRef<string>('workspace.dsl');
   const [openTabs, setOpenTabs] = useState<string[]>(['workspace.dsl']);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
+  const [folders, setFolders] = useState<string[]>([]);
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState<boolean>(false);
 
   // Views & Canvas
@@ -272,6 +273,9 @@ export function App() {
         setDirtyFiles(new Set());
         setParseError(data.parseError);
         setFindings(data.findings || []);
+        if (data.folders) {
+          setFolders(data.folders);
+        }
         if (data.versions) {
           setVersions(data.versions);
         }
@@ -430,6 +434,156 @@ export function App() {
       .catch((err) => {
         console.error('Failed to delete file', err);
         setToast({ type: 'error', message: 'Failed to delete file' });
+      });
+  };
+
+  const handleCreateFolder = (folderPath: string) => {
+    fetch(`/api/workspaces/${currentWorkspaceId}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setFolders(data.folders || []);
+          setToast({ type: 'success', message: `Folder created: ${folderPath}` });
+        } else {
+          setToast({ type: 'error', message: data.detail || 'Failed to create folder' });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to create folder', err);
+        setToast({ type: 'error', message: 'Failed to create folder' });
+      });
+  };
+
+  const handleDeleteFolder = (folderPath: string) => {
+    fetch(`/api/workspaces/${currentWorkspaceId}/folders?path=${encodeURIComponent(folderPath)}`, {
+      method: 'DELETE',
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setFolders(data.folders || []);
+          // Remove any files inside deleted folder from memory
+          const prefix = `${folderPath}/`;
+          const nextFiles = { ...filesRef.current };
+          const deletedPaths: string[] = [];
+          for (const p of Object.keys(nextFiles)) {
+            if (p.startsWith(prefix)) {
+              delete nextFiles[p];
+              deletedPaths.push(p);
+            }
+          }
+          filesRef.current = nextFiles;
+          setFiles(nextFiles);
+          setOpenTabs((prev) => {
+            const remaining = prev.filter((t) => !deletedPaths.includes(t));
+            return remaining.includes(entryPoint) ? remaining : [entryPoint, ...remaining];
+          });
+          if (deletedPaths.includes(activeFileRef.current)) {
+            activeFileRef.current = entryPoint;
+            setActiveFile(entryPoint);
+            setDslCode(nextFiles[entryPoint] ?? '');
+          }
+          setToast({ type: 'info', message: `Folder deleted: ${folderPath}` });
+        } else {
+          setToast({ type: 'error', message: data.detail || 'Failed to delete folder' });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to delete folder', err);
+        setToast({ type: 'error', message: 'Failed to delete folder' });
+      });
+  };
+
+  const handleMoveFile = (oldPath: string, newPath: string) => {
+    if (oldPath === newPath) return;
+    if (oldPath === entryPoint) {
+      setToast({ type: 'error', message: 'Cannot move root entry point workspace.dsl' });
+      return;
+    }
+
+    if (filesRef.current[newPath] !== undefined) {
+      setToast({ type: 'error', message: `File already exists: ${newPath}` });
+      return;
+    }
+
+    // Flush current buffer if oldPath was active
+    const nextFiles = { ...filesRef.current };
+    const content = oldPath === activeFileRef.current ? dslCode : (nextFiles[oldPath] ?? '');
+    delete nextFiles[oldPath];
+    nextFiles[newPath] = content;
+
+    // Update references in workspace.dsl or other files if they include oldPath
+    const oldEscaped = oldPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const includeRegex = new RegExp(`(!include\\s+['"]?)${oldEscaped}(['"]?)`, 'g');
+    let updatedIncludesCount = 0;
+    for (const [fPath, fContent] of Object.entries(nextFiles)) {
+      if (fContent.match(includeRegex)) {
+        nextFiles[fPath] = fContent.replace(includeRegex, `$1${newPath}$2`);
+        updatedIncludesCount++;
+      }
+    }
+
+    filesRef.current = nextFiles;
+    setFiles(nextFiles);
+
+    // Update tabs & active file
+    setOpenTabs((prev) => prev.map((t) => (t === oldPath ? newPath : t)));
+    if (activeFileRef.current === oldPath) {
+      activeFileRef.current = newPath;
+      setActiveFile(newPath);
+    }
+    if (nextFiles[activeFileRef.current] !== undefined) {
+      setDslCode(nextFiles[activeFileRef.current]);
+    }
+
+    // Call backend rename
+    fetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPath, newPath }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setToast({
+            type: 'success',
+            message:
+              updatedIncludesCount > 0
+                ? `Moved ${oldPath} → ${newPath} (updated ${updatedIncludesCount} !include)`
+                : `Moved ${oldPath} → ${newPath}`,
+          });
+
+          // Recompile with updated files
+          fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              files: filesRef.current,
+              entryPoint,
+              viewKey: currentViewKey,
+            }),
+          })
+            .then((cRes) => cRes.json())
+            .then((resData) => {
+              if (resData.success && resData.canvas) {
+                setParseError(null);
+                applyCanvasData(resData.canvas, currentViewKey);
+              } else if (resData.parseError) {
+                setParseError(resData.parseError);
+              }
+            })
+            .catch((err) => console.error('Compile error on move', err));
+        } else {
+          setToast({ type: 'error', message: data.detail || 'Failed to move file' });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to move file', err);
+        setToast({ type: 'error', message: 'Failed to move file' });
       });
   };
 
@@ -1258,14 +1412,18 @@ export function App() {
               <div className="w-52 shrink-0 h-full border-r border-slate-800">
                 <FileTree
                   files={Object.keys(files)}
+                  folders={folders}
                   activeFile={activeFile}
                   entryPoint={entryPoint}
                   errorFile={parseError?.file}
                   dirtyFiles={dirtyFiles}
                   onSelectFile={handleSelectFile}
                   onCreateFile={handleCreateFile}
+                  onCreateFolder={handleCreateFolder}
                   onRenameFile={handleRenameFile}
                   onDeleteFile={handleDeleteFile}
+                  onDeleteFolder={handleDeleteFolder}
+                  onMoveFile={handleMoveFile}
                   onToggleCollapse={() => setIsFileTreeCollapsed(true)}
                 />
               </div>

@@ -311,5 +311,42 @@ describe('API Endpoints', () => {
       method: 'DELETE'
     });
     expect(deleteEntryRes.status).toBe(400);
+
+    // 8. Test folder creation without creating index.dsl
+    const createFolderRes = await app.request('/api/workspaces/1/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath: 'components/auth' })
+    });
+    expect(createFolderRes.status).toBe(200);
+    const folderData = await createFolderRes.json();
+    expect(folderData.success).toBe(true);
+    expect(folderData.folder).toBe('components/auth');
+    expect(folderData.folders).toContain('components/auth');
+
+    // Verify files list does NOT contain any index.dsl
+    const checkFilesRes = await app.request('/api/workspaces/1/files');
+    const checkFilesData = await checkFilesRes.json();
+    expect(checkFilesData.folders).toContain('components/auth');
+    expect(checkFilesData.files.some((f: any) => f.filePath.includes('index.dsl'))).toBe(false);
+
+    // 9. Test folder rename
+    const renameFolderRes = await app.request('/api/workspaces/1/folders/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPath: 'components/auth', newPath: 'components/security' })
+    });
+    expect(renameFolderRes.status).toBe(200);
+    const renamedFolderData = await renameFolderRes.json();
+    expect(renamedFolderData.folders).toContain('components/security');
+    expect(renamedFolderData.folders).not.toContain('components/auth');
+
+    // 10. Test folder deletion
+    const deleteFolderRes = await app.request('/api/workspaces/1/folders?path=components/security', {
+      method: 'DELETE'
+    });
+    expect(deleteFolderRes.status).toBe(200);
+    const deletedFolderData = await deleteFolderRes.json();
+    expect(deletedFolderData.folders).not.toContain('components/security');
   });
 });
