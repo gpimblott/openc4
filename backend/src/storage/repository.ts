@@ -50,6 +50,15 @@ export interface CatalogItem {
   updatedAt: string;
 }
 
+export interface WorkspaceFileRecord {
+  id: number;
+  workspaceId: number;
+  filePath: string;
+  content: string;
+  isEntryPoint: boolean;
+  updatedAt: string;
+}
+
 export const DEFAULT_DB_PATH = path.resolve('data/structurizr.db');
 
 export class WorkspaceRepository {
@@ -110,6 +119,17 @@ export class WorkspaceRepository {
         agent TEXT NOT NULL,
         locked_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS workspace_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        is_entry_point INTEGER DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        UNIQUE(workspace_id, file_path)
+      );
     `);
   }
 
@@ -124,6 +144,13 @@ export class WorkspaceRepository {
     `);
     const result = insert.run(name, description, apiKey, apiSecret, dslSource, now, now);
     const wsId = Number(result.lastInsertRowid);
+
+    // Seed default workspace.dsl as entry point
+    const insertFile = this.db.prepare(`
+      INSERT INTO workspace_files (workspace_id, file_path, content, is_entry_point, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    insertFile.run(wsId, 'workspace.dsl', dslSource, 1, now);
 
     return this.getWorkspace(wsId)!;
   }
@@ -375,5 +402,103 @@ export class WorkspaceRepository {
     if (result.changes === 0) return null;
 
     return { apiKey: newKey, apiSecret: newSecret };
+  }
+
+  getWorkspaceFiles(workspaceId: number): WorkspaceFileRecord[] {
+    const stmt = this.db.prepare(
+      'SELECT id, workspace_id, file_path, content, is_entry_point, updated_at FROM workspace_files WHERE workspace_id = ? ORDER BY is_entry_point DESC, file_path ASC'
+    );
+    let rows = stmt.all(workspaceId) as any[];
+    const hasEntry = rows.some((r) => r.file_path === 'workspace.dsl');
+    if (!hasEntry) {
+      const ws = this.getWorkspace(workspaceId);
+      if (ws) {
+        const now = new Date().toISOString();
+        const ins = this.db.prepare(
+          'INSERT INTO workspace_files (workspace_id, file_path, content, is_entry_point, updated_at) VALUES (?, ?, ?, ?, ?)'
+        );
+        ins.run(workspaceId, 'workspace.dsl', ws.dslSource || '', 1, now);
+        rows = stmt.all(workspaceId) as any[];
+      }
+    }
+    return rows.map((r) => ({
+      id: Number(r.id),
+      workspaceId: Number(r.workspace_id),
+      filePath: r.file_path,
+      content: r.content,
+      isEntryPoint: Boolean(r.is_entry_point),
+      updatedAt: r.updated_at
+    }));
+  }
+
+  saveWorkspaceFile(
+    workspaceId: number,
+    filePath: string,
+    content: string,
+    isEntryPoint: boolean = false
+  ): WorkspaceFileRecord {
+    const cleanPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const now = new Date().toISOString();
+    const isEntry = isEntryPoint || cleanPath === 'workspace.dsl' ? 1 : 0;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO workspace_files (workspace_id, file_path, content, is_entry_point, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(workspace_id, file_path) DO UPDATE SET
+        content = excluded.content,
+        is_entry_point = excluded.is_entry_point,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run(workspaceId, cleanPath, content, isEntry, now);
+
+    const getStmt = this.db.prepare(
+      'SELECT id, workspace_id, file_path, content, is_entry_point, updated_at FROM workspace_files WHERE workspace_id = ? AND file_path = ?'
+    );
+    const row = getStmt.get(workspaceId, cleanPath) as any;
+    return {
+      id: Number(row.id),
+      workspaceId: Number(row.workspace_id),
+      filePath: row.file_path,
+      content: row.content,
+      isEntryPoint: Boolean(row.is_entry_point),
+      updatedAt: row.updated_at
+    };
+  }
+
+  saveWorkspaceFiles(
+    workspaceId: number,
+    files: Record<string, string>,
+    entryPoint: string = 'workspace.dsl'
+  ): WorkspaceFileRecord[] {
+    for (const [path, content] of Object.entries(files)) {
+      this.saveWorkspaceFile(workspaceId, path, content, path === entryPoint);
+    }
+    return this.getWorkspaceFiles(workspaceId);
+  }
+
+  deleteWorkspaceFile(workspaceId: number, filePath: string): boolean {
+    const cleanPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (cleanPath === 'workspace.dsl') {
+      throw new Error('Cannot delete entry point workspace.dsl');
+    }
+    const stmt = this.db.prepare(
+      'DELETE FROM workspace_files WHERE workspace_id = ? AND file_path = ?'
+    );
+    const res = stmt.run(workspaceId, cleanPath);
+    return res.changes > 0;
+  }
+
+  renameWorkspaceFile(workspaceId: number, oldPath: string, newPath: string): boolean {
+    const cleanOld = oldPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanNew = newPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (cleanOld === 'workspace.dsl') {
+      throw new Error('Cannot rename entry point workspace.dsl');
+    }
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(
+      'UPDATE workspace_files SET file_path = ?, updated_at = ? WHERE workspace_id = ? AND file_path = ?'
+    );
+    const res = stmt.run(cleanNew, now, workspaceId, cleanOld);
+    return res.changes > 0;
   }
 }

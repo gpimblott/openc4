@@ -48,6 +48,8 @@ import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
 import { RestoreVersionModal } from './components/RestoreVersionModal';
 import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
+import { FileTree } from './components/FileTree';
+import { EditorTabs } from './components/EditorTabs';
 
 const nodeTypes = {
   c4Node: C4Node,
@@ -90,7 +92,17 @@ export function App() {
 
   // DSL and Editor
   const [dslCode, setDslCode] = useState<string>('');
-  const [parseError, setParseError] = useState<{ message: string; line: number; column: number } | null>(null);
+  const [parseError, setParseError] = useState<{ message: string; line: number; column: number; file?: string } | null>(null);
+
+  // Multi-file Workspace State
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const filesRef = useRef<Record<string, string>>({});
+  const [entryPoint, setEntryPoint] = useState<string>('workspace.dsl');
+  const [activeFile, setActiveFile] = useState<string>('workspace.dsl');
+  const activeFileRef = useRef<string>('workspace.dsl');
+  const [openTabs, setOpenTabs] = useState<string[]>(['workspace.dsl']);
+  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
+  const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState<boolean>(false);
 
   // Views & Canvas
   const [availableViews, setAvailableViews] = useState<ViewOption[]>([]);
@@ -239,7 +251,25 @@ export function App() {
       .then((res) => res.json())
       .then((data) => {
         setWorkspaceInfo(data.workspace);
-        setDslCode(data.dsl);
+        const incomingFiles: Record<string, string> = data.files || {};
+        const entry = data.entryPoint || 'workspace.dsl';
+        if (!incomingFiles[entry]) {
+          incomingFiles[entry] = data.dsl || '';
+        }
+        filesRef.current = incomingFiles;
+        setFiles(incomingFiles);
+        setEntryPoint(entry);
+        setOpenTabs((prev) => {
+          const list = prev.includes(entry) ? prev : [entry, ...prev];
+          const valid = list.filter((f) => incomingFiles[f] !== undefined);
+          return valid.length > 0 ? valid : [entry];
+        });
+        const currentActive = activeFileRef.current;
+        const targetActive = incomingFiles[currentActive] !== undefined ? currentActive : entry;
+        activeFileRef.current = targetActive;
+        setActiveFile(targetActive);
+        setDslCode(incomingFiles[targetActive] ?? incomingFiles[entry] ?? data.dsl ?? '');
+        setDirtyFiles(new Set());
         setParseError(data.parseError);
         setFindings(data.findings || []);
         if (data.versions) {
@@ -268,11 +298,151 @@ export function App() {
     }
   }, [workspaceInfo?.name]);
 
+  // File selection & tab management
+  const handleSelectFile = (filePath: string) => {
+    if (filePath === activeFileRef.current) return;
+
+    // 1. Flush current editor buffer to active file in filesRef.current
+    const currentActive = activeFileRef.current;
+    const updatedFiles = { ...filesRef.current, [currentActive]: dslCode };
+    filesRef.current = updatedFiles;
+    setFiles(updatedFiles);
+
+    // 2. Switch active file
+    activeFileRef.current = filePath;
+    setActiveFile(filePath);
+
+    // 3. Ensure filePath is in openTabs
+    setOpenTabs((prev) => {
+      const ensured = prev.includes(entryPoint) ? prev : [entryPoint, ...prev];
+      return ensured.includes(filePath) ? ensured : [...ensured, filePath];
+    });
+
+    // 4. Set dslCode to target file content
+    setDslCode(updatedFiles[filePath] ?? '');
+  };
+
+  const handleCloseTab = (tab: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (tab === entryPoint) return; // workspace.dsl is pinned and cannot be closed
+
+    // Flush current editor buffer
+    const currentActive = activeFileRef.current;
+    const updatedFiles = { ...filesRef.current, [currentActive]: dslCode };
+    filesRef.current = updatedFiles;
+    setFiles(updatedFiles);
+
+    const remaining = openTabs.filter((t) => t !== tab);
+    const safeRemaining = remaining.includes(entryPoint) ? remaining : [entryPoint, ...remaining];
+    setOpenTabs(safeRemaining);
+
+    if (currentActive === tab) {
+      activeFileRef.current = entryPoint;
+      setActiveFile(entryPoint);
+      setDslCode(updatedFiles[entryPoint] ?? '');
+    }
+  };
+
+  const handleCreateFile = (filePath: string) => {
+    // Flush current editor buffer
+    const currentActive = activeFileRef.current;
+    const currentFiles = { ...filesRef.current, [currentActive]: dslCode };
+    filesRef.current = currentFiles;
+    setFiles(currentFiles);
+
+    const initialContent = `// ${filePath}\n`;
+    fetch(`/api/workspaces/${currentWorkspaceId}/files`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath, content: initialContent }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const nextFiles = { ...filesRef.current, [filePath]: initialContent };
+          filesRef.current = nextFiles;
+          setFiles(nextFiles);
+          setOpenTabs((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
+          activeFileRef.current = filePath;
+          setActiveFile(filePath);
+          setDslCode(initialContent);
+          setToast({ type: 'success', message: `File created: ${filePath}` });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to create file', err);
+        setToast({ type: 'error', message: 'Failed to create file' });
+      });
+  };
+
+  const handleRenameFile = (oldPath: string, newPath: string) => {
+    fetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPath, newPath }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const next = { ...filesRef.current };
+          const content = oldPath === activeFileRef.current ? dslCode : (next[oldPath] ?? '');
+          delete next[oldPath];
+          next[newPath] = content;
+          filesRef.current = next;
+          setFiles(next);
+          setOpenTabs((prev) => prev.map((t) => (t === oldPath ? newPath : t)));
+          if (activeFileRef.current === oldPath) {
+            activeFileRef.current = newPath;
+            setActiveFile(newPath);
+          }
+          setToast({ type: 'success', message: `File renamed: ${oldPath} → ${newPath}` });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to rename file', err);
+        setToast({ type: 'error', message: 'Failed to rename file' });
+      });
+  };
+
+  const handleDeleteFile = (filePath: string) => {
+    fetch(`/api/workspaces/${currentWorkspaceId}/files?path=${encodeURIComponent(filePath)}`, {
+      method: 'DELETE',
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          const next = { ...filesRef.current };
+          delete next[filePath];
+          filesRef.current = next;
+          setFiles(next);
+          setOpenTabs((prev) => {
+            const nextTabs = prev.filter((t) => t !== filePath);
+            return nextTabs.length > 0 ? nextTabs : [entryPoint];
+          });
+          if (activeFileRef.current === filePath) {
+            activeFileRef.current = entryPoint;
+            setActiveFile(entryPoint);
+            setDslCode(next[entryPoint] ?? '');
+          }
+          setToast({ type: 'info', message: `File deleted: ${filePath}` });
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to delete file', err);
+        setToast({ type: 'error', message: 'Failed to delete file' });
+      });
+  };
+
   // Handle DSL code change with instant live compilation (<50ms debounce)
   const handleEditorChange = (value: string | undefined) => {
     const newCode = value || '';
     setDslCode(newCode);
-    setWorkspaceInfo((prev: any) => prev ? { ...prev, state: 'DRAFT' } : prev);
+    const currActive = activeFileRef.current;
+    const updatedFiles = { ...filesRef.current, [currActive]: newCode };
+    filesRef.current = updatedFiles;
+    setFiles(updatedFiles);
+    setDirtyFiles((prev) => new Set(prev).add(currActive));
+    setWorkspaceInfo((prev: any) => (prev ? { ...prev, state: 'DRAFT' } : prev));
     if (selectedVersion !== 'current') {
       setSelectedVersion('current');
     }
@@ -285,7 +455,11 @@ export function App() {
       fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dsl: newCode, viewKey: currentViewKey }),
+        body: JSON.stringify({
+          files: filesRef.current,
+          entryPoint,
+          viewKey: currentViewKey,
+        }),
       })
         .then((res) => res.json())
         .then((resData) => {
@@ -321,11 +495,17 @@ export function App() {
       });
     }
 
+    const currentFiles = { ...filesRef.current, [activeFileRef.current]: dslCode };
+    filesRef.current = currentFiles;
+    setFiles(currentFiles);
+
     fetch(`/api/workspaces/${currentWorkspaceId}/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        dsl: dslCode,
+        files: currentFiles,
+        entryPoint,
+        dsl: currentFiles[entryPoint] || dslCode,
         layoutCoordinates: layoutCoords,
         state: 'DRAFT',
       }),
@@ -334,6 +514,7 @@ export function App() {
       .then((data) => {
         setIsSaving(false);
         setSaveSuccess(true);
+        setDirtyFiles(new Set());
         if (data.workspace) {
           setWorkspaceInfo(data.workspace);
         }
@@ -1071,38 +1252,95 @@ export function App() {
           </div>
 
           {/* DSL Editor Tab View (kept mounted to preserve state/undo history) */}
-          <div className={`flex-1 flex flex-col overflow-hidden ${leftPanelTab === 'dsl' ? '' : 'hidden'}`}>
-            <div className="flex-1 overflow-hidden">
-              <Editor
-                height="100%"
-                language="structurizr"
-                theme="vs-dark"
-                value={dslCode}
-                onChange={handleEditorChange}
-                beforeMount={registerStructurizrDsl}
-                options={{
-                  fontSize: 13,
-                  fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  lineNumbers: 'on',
-                  automaticLayout: true,
-                  padding: { top: 12, bottom: 12 },
-                }}
-              />
-            </div>
-
-            {/* Error Squiggle Footer */}
-            {parseError && (
-              <div className="px-4 py-2.5 bg-rose-950/80 border-t border-rose-800 text-rose-200 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                <span className="font-mono text-rose-300">
-                  [Line {parseError.line}, Col {parseError.column}]
-                </span>
-                <span>{parseError.message}</span>
+          <div className={`flex-1 flex flex-row overflow-hidden ${leftPanelTab === 'dsl' ? '' : 'hidden'}`}>
+            {/* Left Column: File Explorer (when displayed) */}
+            {!isFileTreeCollapsed && (
+              <div className="w-52 shrink-0 h-full border-r border-slate-800">
+                <FileTree
+                  files={Object.keys(files)}
+                  activeFile={activeFile}
+                  entryPoint={entryPoint}
+                  errorFile={parseError?.file}
+                  dirtyFiles={dirtyFiles}
+                  onSelectFile={handleSelectFile}
+                  onCreateFile={handleCreateFile}
+                  onRenameFile={handleRenameFile}
+                  onDeleteFile={handleDeleteFile}
+                  onToggleCollapse={() => setIsFileTreeCollapsed(true)}
+                />
               </div>
             )}
+
+            {/* Right Column: Tabs Bar + Editor Window + Error Banner */}
+            <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+              <EditorTabs
+                openTabs={openTabs}
+                activeTab={activeFile}
+                entryPoint={entryPoint}
+                errorFile={parseError?.file}
+                dirtyFiles={dirtyFiles}
+                isFileTreeCollapsed={isFileTreeCollapsed}
+                onSelectTab={handleSelectFile}
+                onCloseTab={handleCloseTab}
+                onNewFile={() => {
+                  const name = prompt('New file path (e.g. systems/auth.dsl):');
+                  if (name) handleCreateFile(name);
+                }}
+                onToggleFileTree={() => setIsFileTreeCollapsed((prev) => !prev)}
+              />
+
+              <div className="flex-1 overflow-hidden h-full">
+                <Editor
+                  height="100%"
+                  language="structurizr"
+                  theme="vs-dark"
+                  value={dslCode}
+                  onChange={handleEditorChange}
+                  beforeMount={registerStructurizrDsl}
+                  options={{
+                    fontSize: 13,
+                    fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                    lineNumbers: 'on',
+                    automaticLayout: true,
+                    padding: { top: 12, bottom: 12 },
+                    acceptSuggestionOnCommitCharacter: false,
+                    acceptSuggestionOnEnter: 'smart',
+                    tabCompletion: 'on',
+                    quickSuggestions: { other: true, comments: false, strings: false },
+                  }}
+                />
+              </div>
+
+              {/* Error Squiggle Footer */}
+              {parseError && (
+                <div
+                  onClick={() => {
+                    if (parseError.file && parseError.file !== activeFile) {
+                      handleSelectFile(parseError.file);
+                    }
+                  }}
+                  className={`px-4 py-2.5 bg-rose-950/80 border-t border-rose-800 text-rose-200 text-xs flex items-center justify-between gap-2 ${
+                    parseError.file && parseError.file !== activeFile ? 'cursor-pointer hover:bg-rose-900/90' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 overflow-hidden truncate">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span className="font-mono text-rose-300 shrink-0">
+                      [{parseError.file ? `${parseError.file}:` : ''}Line {parseError.line}, Col {parseError.column}]
+                    </span>
+                    <span className="truncate">{parseError.message}</span>
+                  </div>
+                  {parseError.file && parseError.file !== activeFile && (
+                    <span className="shrink-0 text-xs bg-rose-900/70 hover:bg-rose-800 text-rose-200 px-2 py-0.5 rounded border border-rose-700 font-medium">
+                      Jump to {parseError.file}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Catalog Tab View */}
@@ -1203,6 +1441,7 @@ export function App() {
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             nodeTypes={nodeTypes}
+            panActivationKeyCode={null}
             fitView
             colorMode="dark"
             className="c4-canvas"

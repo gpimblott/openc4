@@ -23,6 +23,7 @@ import { diffWorkspaces } from '../engine/diff.js';
 import { StructurizrMCP } from '../engine/mcp.js';
 import { WorkspaceRepository } from '../storage/repository.js';
 import { deleteFromDsl } from '../engine/modifier.js';
+import { preprocessWorkspace, mapParseError } from '../engine/preprocessor.js';
 
 export const DEFAULT_SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking System architecture model" {
 
@@ -204,6 +205,68 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json(ws);
   });
 
+  // Workspace Files Endpoints
+  app.get('/api/workspaces/:id/files', (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const files = repo.getWorkspaceFiles(workspaceId);
+    return c.json({ files });
+  });
+
+  app.put('/api/workspaces/:id/files', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const body = await c.req.json();
+    const filePath = body.filePath || body.path || 'workspace.dsl';
+    const content = body.content !== undefined ? body.content : '';
+    const isEntryPoint = Boolean(body.isEntryPoint);
+    const file = repo.saveWorkspaceFile(workspaceId, filePath, content, isEntryPoint);
+    return c.json({ success: true, file });
+  });
+
+  app.delete('/api/workspaces/:id/files', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const pathParam = c.req.query('path') || (await c.req.json().catch(() => ({}))).path;
+    if (!pathParam) {
+      return c.json({ detail: 'Missing path parameter' }, 400);
+    }
+    try {
+      const ok = repo.deleteWorkspaceFile(workspaceId, pathParam);
+      return c.json({ success: ok });
+    } catch (err: any) {
+      return c.json({ detail: err.message }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/files/rename', async (c) => {
+    const workspaceId = parseInt(c.req.param('id'), 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const body = await c.req.json();
+    const { oldPath, newPath } = body;
+    if (!oldPath || !newPath) {
+      return c.json({ detail: 'Missing oldPath or newPath' }, 400);
+    }
+    try {
+      const ok = repo.renameWorkspaceFile(workspaceId, oldPath, newPath);
+      return c.json({ success: ok });
+    } catch (err: any) {
+      return c.json({ detail: err.message }, 400);
+    }
+  });
+
   app.get('/api/workspaces/:id/studio', (c) => {
     const workspaceId = parseInt(c.req.param('id'), 10);
     const viewKey = c.req.query('viewKey') || null;
@@ -213,7 +276,15 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       return c.json({ detail: 'Workspace not found' }, 404);
     }
 
-    const dsl = ws.dslSource;
+    const filesList = repo.getWorkspaceFiles(workspaceId);
+    const filesDict: Record<string, string> = {};
+    for (const f of filesList) {
+      filesDict[f.filePath] = f.content;
+    }
+    const entryPoint = 'workspace.dsl';
+
+    let dsl = ws.dslSource;
+    let lineMap: any[] = [];
     let parseError: any = null;
     let canvasData: any = null;
     let findings: any[] = [];
@@ -222,27 +293,40 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     let currentDesc = ws.description;
 
     try {
-      const parsed = parseDsl(dsl);
-      if (parsed.name && parsed.name !== ws.name) {
-        currentName = parsed.name;
-        currentDesc = parsed.description || ws.description;
-        repo.updateWorkspace(workspaceId, { name: currentName, description: currentDesc });
+      if (filesList.length > 0 && filesDict[entryPoint] !== undefined) {
+        const prep = preprocessWorkspace(entryPoint, filesDict);
+        dsl = prep.fullDsl;
+        lineMap = prep.lineMap;
       }
-
-      const layoutCache = ws.layoutCache || {};
-      for (const v of parsed.views) {
-        if (layoutCache[v.key]) {
-          v.layoutCoordinates = layoutCache[v.key];
-        }
-      }
-
-      canvasData = compileViewToCanvas(parsed, viewKey);
-      findings = inspectWorkspace(parsed);
     } catch (pe: any) {
-      if (pe instanceof ParseError) {
-        parseError = pe.toJSON();
-      } else {
-        parseError = { message: pe.message, line: 1, column: 1 };
+      parseError = {
+        message: pe.message || 'Preprocessor error',
+        line: pe.line || 1,
+        column: pe.column || 1,
+        file: entryPoint
+      };
+    }
+
+    if (!parseError) {
+      try {
+        const parsed = parseDsl(dsl);
+        if (parsed.name && parsed.name !== ws.name) {
+          currentName = parsed.name;
+          currentDesc = parsed.description || ws.description;
+          repo.updateWorkspace(workspaceId, { name: currentName, description: currentDesc });
+        }
+
+        const layoutCache = ws.layoutCache || {};
+        for (const v of parsed.views) {
+          if (layoutCache[v.key]) {
+            v.layoutCoordinates = layoutCache[v.key];
+          }
+        }
+
+        canvasData = compileViewToCanvas(parsed, viewKey);
+        findings = inspectWorkspace(parsed);
+      } catch (pe: any) {
+        parseError = mapParseError(pe, lineMap, entryPoint);
       }
     }
 
@@ -259,6 +343,9 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
         updatedAt: ws.updatedAt
       },
       dsl,
+      files: filesDict,
+      filesList,
+      entryPoint,
       parseError,
       canvas: canvasData,
       findings,
@@ -269,11 +356,35 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   app.post('/api/workspaces/:id/compile', async (c) => {
     const workspaceId = parseInt(c.req.param('id'), 10);
     const body = await c.req.json();
-    const dsl = body.dsl || '';
     const viewKey = body.viewKey || null;
 
     const ws = repo.getWorkspace(workspaceId);
     const layoutCache = ws?.layoutCache || {};
+
+    let dsl = body.dsl || '';
+    let lineMap: any[] = [];
+    const entryPoint = body.entryPoint || 'workspace.dsl';
+
+    if (body.files && typeof body.files === 'object') {
+      try {
+        const prep = preprocessWorkspace(entryPoint, body.files);
+        dsl = prep.fullDsl;
+        lineMap = prep.lineMap;
+      } catch (pe: any) {
+        const errDict = {
+          message: pe.message || 'Preprocessor error',
+          line: pe.line || 1,
+          column: pe.column || 1,
+          file: entryPoint
+        };
+        return c.json({
+          success: false,
+          parseError: errDict,
+          canvas: null,
+          findings: []
+        });
+      }
+    }
 
     try {
       const parsed = parseDsl(dsl);
@@ -292,10 +403,11 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
         findings,
         workspaceName: parsed.name,
         workspaceDescription: parsed.description,
-        parseError: null
+        parseError: null,
+        fullDsl: dsl
       });
     } catch (pe: any) {
-      const errDict = pe instanceof ParseError ? pe.toJSON() : { message: pe.message, line: 1, column: 1 };
+      const errDict = mapParseError(pe, lineMap, entryPoint);
       return c.json({
         success: false,
         parseError: errDict,
@@ -358,11 +470,28 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
       Object.assign(layoutCache, body.layoutCoordinates);
     }
 
+    const entryPoint = body.entryPoint || 'workspace.dsl';
+
+    // If files are supplied, save them to workspace_files
+    if (body.files && typeof body.files === 'object') {
+      repo.saveWorkspaceFiles(workspaceId, body.files, entryPoint);
+    }
+
+    let targetDsl = body.dsl || ws.dslSource;
+    if (body.files && typeof body.files === 'object') {
+      try {
+        const prep = preprocessWorkspace(entryPoint, body.files);
+        targetDsl = prep.fullDsl;
+      } catch {
+        // Fall back to body.dsl if available
+      }
+    }
+
     let jsonData = ws.jsonCache;
     let wsName = body.name || ws.name;
     let wsDesc = body.description || ws.description;
     try {
-      const parsed = parseDsl(body.dsl);
+      const parsed = parseDsl(targetDsl);
       jsonData = workspaceToStructurizrJson(parsed);
       if (parsed.name) wsName = parsed.name;
       if (parsed.description) wsDesc = parsed.description;
@@ -371,7 +500,7 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
 
     const updated = repo.updateWorkspace(workspaceId, {
-      dslSource: body.dsl,
+      dslSource: targetDsl,
       jsonCache: jsonData,
       layoutCache,
       name: wsName,

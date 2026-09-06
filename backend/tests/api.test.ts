@@ -217,4 +217,99 @@ describe('API Endpoints', () => {
     expect(restoreData.success).toBe(true);
     expect(restoreData.workspace.version).toBe('1.0.0');
   });
+
+  it('manages multi-file workspace and resolves !include compilation', async () => {
+    // 1. Check files list auto-seeds workspace.dsl
+    const listRes = await app.request('/api/workspaces/1/files');
+    expect(listRes.status).toBe(200);
+    const listData = await listRes.json();
+    expect(listData.files.length).toBeGreaterThanOrEqual(1);
+    expect(listData.files.some((f: any) => f.filePath === 'workspace.dsl' && f.isEntryPoint)).toBe(true);
+
+    // 2. Create a new modular file
+    const putRes = await app.request('/api/workspaces/1/files', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'systems/payments.dsl',
+        content: 'paymentGateway = softwareSystem "Payment Gateway" "Processes transactions."'
+      })
+    });
+    expect(putRes.status).toBe(200);
+    const putData = await putRes.json();
+    expect(putData.success).toBe(true);
+    expect(putData.file.filePath).toBe('systems/payments.dsl');
+
+    // 3. Compile with multi-file map using !include
+    const compileRes = await app.request('/api/workspaces/1/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryPoint: 'workspace.dsl',
+        files: {
+          'workspace.dsl': `workspace "Modular Bank" {
+  model {
+    !include systems/payments.dsl
+  }
+  views {
+    systemContext paymentGateway "PaymentContext" {
+      include *
+    }
+  }
+}`,
+          'systems/payments.dsl': 'paymentGateway = softwareSystem "Payment Gateway" "Processes transactions."'
+        }
+      })
+    });
+    expect(compileRes.status).toBe(200);
+    const compileData = await compileRes.json();
+    expect(compileData.success).toBe(true);
+    expect(compileData.workspaceName).toBe('Modular Bank');
+    expect(compileData.canvas.nodes.some((n: any) => n.data?.name === 'Payment Gateway')).toBe(true);
+
+    // 4. Test error mapping on included file syntax error
+    const brokenCompileRes = await app.request('/api/workspaces/1/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryPoint: 'workspace.dsl',
+        files: {
+          'workspace.dsl': `workspace "Modular Bank" {
+  model {
+    !include systems/payments.dsl
+  }
+}`,
+          'systems/payments.dsl': '"unterminated string'
+        }
+      })
+    });
+    expect(brokenCompileRes.status).toBe(200);
+    const brokenData = await brokenCompileRes.json();
+    expect(brokenData.success).toBe(false);
+    expect(brokenData.parseError.file).toBe('systems/payments.dsl');
+    expect(brokenData.parseError.line).toBe(1);
+
+    // 5. Rename a file
+    const renameRes = await app.request('/api/workspaces/1/files/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldPath: 'systems/payments.dsl',
+        newPath: 'systems/gateway.dsl'
+      })
+    });
+    expect(renameRes.status).toBe(200);
+
+    // 6. Delete the file
+    const deleteRes = await app.request('/api/workspaces/1/files?path=systems/gateway.dsl', {
+      method: 'DELETE'
+    });
+    expect(deleteRes.status).toBe(200);
+
+    // 7. Verify entry point workspace.dsl cannot be deleted
+    const deleteEntryRes = await app.request('/api/workspaces/1/files?path=workspace.dsl', {
+      method: 'DELETE'
+    });
+    expect(deleteEntryRes.status).toBe(400);
+  });
 });

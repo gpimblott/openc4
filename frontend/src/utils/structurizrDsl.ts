@@ -3,6 +3,33 @@ import type { Monaco } from '@monaco-editor/react';
 export const registerStructurizrDsl = (monaco: Monaco) => {
   monaco.languages.register({ id: 'structurizr' });
 
+  monaco.languages.setLanguageConfiguration('structurizr', {
+    wordPattern: /(-?\d*\.\d\w*)|([^\`\~\@\#\$\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
+    comments: {
+      lineComment: '//',
+      blockComment: ['/*', '*/'],
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+    surroundingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+  });
+
   monaco.languages.setMonarchTokensProvider('structurizr', {
     keywords: [
       'workspace', 'model', 'views', 'styles', 'configuration', 'theme', 'themes',
@@ -13,6 +40,10 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
       'include', 'exclude', 'autoLayout', 'title', 'description', 'properties', 'tags', 'url',
       'element', 'relationship', 'shape', 'background', 'color', 'stroke', 'strokeWidth',
       'fontSize', 'border', 'opacity', 'thickness', 'style', 'routing', 'dashed'
+    ],
+
+    directives: [
+      '!include', '!ref', '!plugin', '!docs', '!adrs', '!script', '!identifiers'
     ],
 
     typeKeywords: [
@@ -28,6 +59,7 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
         [/\/\/.*$/, 'comment'],
         [/#.*$/, 'comment'],
         [/\/\*/, 'comment', '@comment'],
+        [/!(?:include|ref|plugin|docs|adrs|script|identifiers)\b/, 'keyword.directive'],
         [/"([^"\\]|\\.)*"/, 'string'],
         [/'([^'\\]|\\.)*'/, 'string'],
         [/->/, 'operator.arrow'],
@@ -63,6 +95,13 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
       };
 
       const suggestions = [
+        {
+          label: '!include',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: '!include ${1:file.dsl}',
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          range,
+        },
         {
           label: 'person',
           kind: monaco.languages.CompletionItemKind.Keyword,
