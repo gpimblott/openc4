@@ -324,6 +324,17 @@
               100% compatible drop-in replacement for the Structurizr Web API. Push and pull workspaces seamlessly from CI/CD pipelines via <code>structurizr-cli</code>.
             </p>
           </div>
+
+          <!-- Feature 10 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper icon-emerald">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </div>
+            <h3 class="feature-title">Modular Multi-File Explorer & !include</h3>
+            <p class="feature-desc">
+              Organize complex architectures across modular files and folders. Drag-and-drop files into directories, auto-refactor <code>!include</code> statements, and preserve in-memory edits across tabs.
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -343,9 +354,10 @@
           <nav class="guide-nav" aria-label="Guides Navigation">
             <button class="guide-tab-btn active" data-tab="tab-quickstart">1. Quickstart & Deployment</button>
             <button class="guide-tab-btn" data-tab="tab-dsl">2. C4 DSL Modeling</button>
-            <button class="guide-tab-btn" data-tab="tab-cli">3. CI/CD & CLI Integration</button>
-            <button class="guide-tab-btn" data-tab="tab-mcp">4. AI & MCP Copilot</button>
-            <button class="guide-tab-btn" data-tab="tab-mermaid">5. Mermaid & Markdown Export</button>
+            <button class="guide-tab-btn" data-tab="tab-multifile">3. Multi-File & !include</button>
+            <button class="guide-tab-btn" data-tab="tab-cli">4. CI/CD & CLI Integration</button>
+            <button class="guide-tab-btn" data-tab="tab-mcp">5. AI & MCP Copilot</button>
+            <button class="guide-tab-btn" data-tab="tab-mermaid">6. Mermaid & Markdown Export</button>
           </nav>
 
           <div class="guide-content">
@@ -439,7 +451,47 @@ cd openc4
               </div>
             </div>
 
-            <!-- Tab 3: CLI Integration -->
+            <!-- Tab 3: Multi-File & !include -->
+            <div id="tab-multifile" class="guide-pane">
+              <div class="step-card">
+                <h3 class="step-title">Modular Multi-File Architecture & !include</h3>
+                <p class="step-desc">
+                  Scale your architecture by breaking models into modular files and directories. Multiple developers can work on distinct system files without merge collisions.
+                </p>
+                <div class="code-box">
+                  <div class="code-header">
+                    <span>workspace.dsl</span>
+                    <button class="copy-btn">Copy</button>
+                  </div>
+                  <pre class="code-pre">workspace "Banking Platform" "Modular enterprise C4 architecture." {
+    model {
+        !include people.dsl
+        !include systems/payment.dsl
+        !include systems/accounts.dsl
+        // Or include an entire directory:
+        // !include systems/
+    }
+    views {
+        systemContext paymentSystem "PaymentContext" {
+            include *
+            autoLayout lr
+        }
+    }
+}</pre>
+                </div>
+                <div style="margin-top: 1.25rem; padding: 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                  <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-heading); margin-bottom: 0.5rem;">File Explorer & Drag-and-Drop</h4>
+                  <ul style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; padding-left: 1.25rem;">
+                    <li><strong>Clean Folder Management:</strong> Create folders (e.g. <code>systems/</code>, <code>components/</code>) without generating dummy <code>index.dsl</code> files.</li>
+                    <li><strong>Drag-and-Drop:</strong> Drag files directly into folders in the sidebar explorer; an automatic "Drop here to move to root" banner lets you move files back to root.</li>
+                    <li><strong>Auto-Refactoring:</strong> Moving files automatically updates corresponding <code>!include</code> directives in <code>workspace.dsl</code>.</li>
+                    <li><strong>Tabbed Editing:</strong> Open multiple files side-by-side with unsaved edit tracking (<code>•</code>) preserved across tab switches.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 4: CLI Integration -->
             <div id="tab-cli" class="guide-pane">
               <div class="step-card">
                 <h3 class="step-title">Automating Architecture in CI/CD with structurizr-cli</h3>
@@ -658,6 +710,20 @@ C4Context
             <summary class="faq-question">What is the Enterprise Model Catalog?</summary>
             <div class="faq-answer">
               The Enterprise Model Catalog is a centralized registry where teams can publish Software Systems. Other workspaces can import and reference these shared systems without duplicate DSL definitions, keeping enterprise architectures aligned.
+            </div>
+          </details>
+
+          <details class="faq-item" name="faq">
+            <summary class="faq-question">How can multiple teams collaborate without overwriting each other's work?</summary>
+            <div class="faq-answer">
+              By using OpenC4's <strong>Multi-File Workspaces</strong>! Instead of keeping your entire architecture in one monolithic file, break systems and components into isolated child files (e.g. <code>systems/payment.dsl</code>, <code>people.dsl</code>). Teams edit only their respective files, which are referenced via <code>!include</code> in the root <code>workspace.dsl</code>. In the Web Studio, files and folders can be managed directly with drag-and-drop.
+            </div>
+          </details>
+
+          <details class="faq-item" name="faq">
+            <summary class="faq-question">How does the !include preprocessor handle relative paths and errors?</summary>
+            <div class="faq-answer">
+              OpenC4 includes a high-speed recursive preprocessor that resolves relative paths, directory includes (<code>!include folder/</code>), and detects circular dependencies. It maintains an exact 1-to-1 source line map so if a syntax error occurs anywhere, the studio pinpoints the exact file and line where the error occurred and lets you jump straight to it.
             </div>
           </details>
 
