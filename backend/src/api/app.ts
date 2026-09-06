@@ -24,6 +24,10 @@ import { StructurizrMCP } from '../engine/mcp.js';
 import { WorkspaceRepository } from '../storage/repository.js';
 import { deleteFromDsl } from '../engine/modifier.js';
 import { preprocessWorkspace, mapParseError } from '../engine/preprocessor.js';
+import { AuthService } from '../auth/service.js';
+import { requireAbility } from '../auth/middleware.js';
+import { defineAbilityFor } from '../auth/ability.js';
+import type { Context, Next } from 'hono';
 
 export const DEFAULT_SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking System architecture model" {
 
@@ -96,8 +100,15 @@ export const DEFAULT_SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking Sy
     }
 }`;
 
-export function createApp(repo: WorkspaceRepository = new WorkspaceRepository()): Hono {
+export function createApp(
+  repo: WorkspaceRepository = new WorkspaceRepository(),
+  authService: AuthService = new AuthService(repo),
+  options?: { authRequired?: boolean }
+): Hono {
   const app = new Hono();
+  const isAuthRequired = options?.authRequired !== undefined
+    ? options.authRequired
+    : process.env.AUTH_REQUIRED !== 'false';
 
   // CORS middleware
   app.use('*', cors());
@@ -120,12 +131,184 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
 
   ensureSeedWorkspace();
 
+  // Authentication & Session Middleware
+  const authMiddleware = async (c: Context, next: Next) => {
+    let token: string | undefined;
+
+    const authHeader = c.req.header('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    }
+
+    if (!token) {
+      const cookieHeader = c.req.header('Cookie');
+      if (cookieHeader) {
+        const match = cookieHeader.match(/(?:^|;\s*)(?:openc4_token|auth_token)=([^;]+)/);
+        if (match) {
+          token = decodeURIComponent(match[1]);
+        }
+      }
+    }
+
+    if (!token) {
+      token = c.req.query('token');
+    }
+
+    if (token) {
+      const user = await authService.verifyToken(token);
+      if (user) {
+        c.set('user', user);
+        c.set('ability', defineAbilityFor(user));
+      }
+    }
+
+    if (!c.get('user')) {
+      if (!isAuthRequired) {
+        // Non-auth fallback
+        const devAdmin = {
+          id: 1,
+          username: 'admin',
+          email: 'admin@openc4.org',
+          displayName: 'System Administrator',
+          role: 'admin' as const,
+          provider: 'local',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        c.set('user', devAdmin);
+        c.set('ability', defineAbilityFor(devAdmin));
+      } else {
+        return c.json({ error: 'Unauthorized', message: 'Authentication required' }, 401);
+      }
+    }
+
+    await next();
+  };
+
+  // ============================================================================
+  // Authentication & RBAC Endpoints
+  // ============================================================================
+
+  app.get('/api/auth/providers', (c) => {
+    return c.json(authService.getProviders());
+  });
+
+  app.post('/api/auth/login', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { username, password, provider = 'local' } = body;
+
+    try {
+      const result = await authService.authenticate(provider, { username, password });
+      if (!result) {
+        return c.json({ error: 'Unauthorized', message: 'Invalid username or password' }, 401);
+      }
+
+      c.header('Set-Cookie', `openc4_token=${encodeURIComponent(result.token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
+
+      return c.json({
+        success: true,
+        token: result.token,
+        user: result.user
+      });
+    } catch (err: any) {
+      return c.json({ error: 'AuthenticationFailed', message: err.message }, 400);
+    }
+  });
+
+  app.post('/api/auth/logout', (c) => {
+    c.header('Set-Cookie', 'openc4_token=; Path=/; HttpOnly; Max-Age=0');
+    return c.json({ success: true, message: 'Logged out successfully' });
+  });
+
+  app.get('/api/auth/me', authMiddleware, (c) => {
+    const user = c.get('user')!;
+    const ability = c.get('ability')!;
+    return c.json({
+      user,
+      rules: ability.rules,
+      canEdit: ability.can('update', 'Workspace'),
+      canPublish: ability.can('publish', 'Workspace'),
+      isAdmin: ability.can('manage', 'all')
+    });
+  });
+
+  // User Administration Endpoints (Requires manage User)
+  app.get('/api/auth/users', authMiddleware, requireAbility('manage', 'User'), (c) => {
+    return c.json(authService.listUsers());
+  });
+
+  app.post('/api/auth/users', authMiddleware, requireAbility('manage', 'User'), async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { username, email, displayName, password, role } = body;
+    if (!username || !email || !password) {
+      return c.json({ error: 'BadRequest', message: 'Username, email, and password are required' }, 400);
+    }
+
+    try {
+      const newUser = authService.createUser({
+        username,
+        email,
+        displayName: displayName || username,
+        password,
+        role: role || 'viewer'
+      });
+      return c.json({ success: true, user: newUser }, 201);
+    } catch (err: any) {
+      return c.json({ error: 'BadRequest', message: err.message }, 400);
+    }
+  });
+
+  app.put('/api/auth/users/:id', authMiddleware, requireAbility('manage', 'User'), async (c) => {
+    const id = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    const updated = authService.updateUser(id, {
+      email: body.email,
+      displayName: body.displayName,
+      role: body.role
+    });
+    if (!updated) {
+      return c.json({ error: 'NotFound', message: 'User not found' }, 404);
+    }
+    return c.json({ success: true, user: updated });
+  });
+
+  app.delete('/api/auth/users/:id', authMiddleware, requireAbility('manage', 'User'), (c) => {
+    const id = parseInt(c.req.param('id')!, 10);
+    const currentUser = c.get('user');
+    if (currentUser && currentUser.id === id) {
+      return c.json({ error: 'BadRequest', message: 'Cannot delete your own account' }, 400);
+    }
+
+    try {
+      const deleted = authService.deleteUser(id);
+      if (!deleted) {
+        return c.json({ error: 'NotFound', message: 'User not found' }, 404);
+      }
+      return c.json({ success: true, message: 'User deleted' });
+    } catch (err: any) {
+      return c.json({ error: 'BadRequest', message: err.message }, 400);
+    }
+  });
+
+  app.post('/api/auth/users/:id/reset-password', authMiddleware, requireAbility('manage', 'User'), async (c) => {
+    const id = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    if (!body.password) {
+      return c.json({ error: 'BadRequest', message: 'New password is required' }, 400);
+    }
+    const ok = authService.resetPassword(id, body.password);
+    if (!ok) {
+      return c.json({ error: 'NotFound', message: 'User not found' }, 404);
+    }
+    return c.json({ success: true, message: 'Password reset successfully' });
+  });
+
   // ============================================================================
   // Official Structurizr REST API Compatible Endpoints
   // ============================================================================
 
   app.get('/api/workspace/:id', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -146,7 +329,7 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   });
 
   app.put('/api/workspace/:id', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -161,8 +344,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.post('/api/workspace/:id/apikey/regenerate', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspace/:id/apikey/regenerate', authMiddleware, requireAbility('manage', 'all'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const keys = repo.regenerateApiKey(workspaceId);
     if (!keys) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -170,11 +353,11 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({ success: true, ...keys });
   });
 
-  app.post('/api/workspace/:id/lock', (c) => {
+  app.post('/api/workspace/:id/lock', authMiddleware, requireAbility('update', 'Workspace'), (c) => {
     return c.json({ success: true, message: 'Workspace locked' });
   });
 
-  app.delete('/api/workspace/:id/lock', (c) => {
+  app.delete('/api/workspace/:id/lock', authMiddleware, requireAbility('update', 'Workspace'), (c) => {
     return c.json({ success: true, message: 'Workspace unlocked' });
   });
 
@@ -182,11 +365,11 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   // Modern Web Studio Endpoints
   // ============================================================================
 
-  app.get('/api/workspaces', (c) => {
+  app.get('/api/workspaces', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
     return c.json(repo.listWorkspaces());
   });
 
-  app.post('/api/workspaces', async (c) => {
+  app.post('/api/workspaces', authMiddleware, requireAbility('create', 'Workspace'), async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const name = body.name || 'Untitled Workspace';
     const description = body.description || '';
@@ -206,8 +389,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   });
 
   // Workspace Files Endpoints
-  app.get('/api/workspaces/:id/files', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.get('/api/workspaces/:id/files', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -217,8 +400,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({ files, folders });
   });
 
-  app.put('/api/workspaces/:id/files', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.put('/api/workspaces/:id/files', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -231,8 +414,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({ success: true, file });
   });
 
-  app.delete('/api/workspaces/:id/files', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.delete('/api/workspaces/:id/files', authMiddleware, requireAbility('delete', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -249,8 +432,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.post('/api/workspaces/:id/files/rename', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/files/rename', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -269,8 +452,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
   });
 
   // Workspace Folders Endpoints
-  app.post('/api/workspaces/:id/folders', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/folders', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -288,8 +471,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.delete('/api/workspaces/:id/folders', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.delete('/api/workspaces/:id/folders', authMiddleware, requireAbility('delete', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -306,8 +489,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.post('/api/workspaces/:id/folders/rename', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/folders/rename', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -325,8 +508,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.get('/api/workspaces/:id/studio', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.get('/api/workspaces/:id/studio', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const viewKey = c.req.query('viewKey') || null;
 
     const ws = repo.getWorkspace(workspaceId);
@@ -412,8 +595,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     });
   });
 
-  app.post('/api/workspaces/:id/compile', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/compile', authMiddleware, requireAbility('read', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const body = await c.req.json();
     const viewKey = body.viewKey || null;
 
@@ -476,8 +659,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.post('/api/workspaces/:id/delete', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/delete', authMiddleware, requireAbility('delete', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const body = await c.req.json().catch(() => ({}));
     const dsl = body.dsl || '';
     const nodeIds = body.nodeIds || [];
@@ -516,8 +699,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.post('/api/workspaces/:id/save', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/save', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -570,8 +753,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({ success: true, workspace: updated });
   });
 
-  app.post('/api/workspaces/:id/publish', async (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.post('/api/workspaces/:id/publish', authMiddleware, requireAbility('publish', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -605,14 +788,14 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.get('/api/workspaces/:id/versions', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.get('/api/workspaces/:id/versions', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     return c.json(repo.listVersions(workspaceId));
   });
 
-  app.get('/api/workspaces/:id/versions/:version', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
-    const version = c.req.param('version');
+  app.get('/api/workspaces/:id/versions/:version', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const version = c.req.param('version')!;
     const snap = repo.getVersionSnapshot(workspaceId, version);
     if (!snap) {
       return c.json({ detail: `Version ${version} not found` }, 404);
@@ -620,9 +803,9 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json(snap);
   });
 
-  app.post('/api/workspaces/:id/versions/:version/load', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
-    const version = c.req.param('version');
+  app.post('/api/workspaces/:id/versions/:version/load', authMiddleware, requireAbility('publish', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const version = c.req.param('version')!;
     const updated = repo.restoreWorkspaceVersion(workspaceId, version);
     if (!updated) {
       return c.json({ detail: `Version ${version} not found` }, 404);
@@ -630,8 +813,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     return c.json({ success: true, workspace: updated });
   });
 
-  app.get('/api/workspaces/:id/diff', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.get('/api/workspaces/:id/diff', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -687,8 +870,8 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     });
   });
 
-  app.get('/api/workspaces/:id/export', (c) => {
-    const workspaceId = parseInt(c.req.param('id'), 10);
+  app.get('/api/workspaces/:id/export', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
     const ws = repo.getWorkspace(workspaceId);
     if (!ws) {
       return c.json({ detail: 'Workspace not found' }, 404);
@@ -718,7 +901,7 @@ export function createApp(repo: WorkspaceRepository = new WorkspaceRepository())
     }
   });
 
-  app.get('/api/enterprise/catalog', (c) => {
+  app.get('/api/enterprise/catalog', authMiddleware, requireAbility('read', 'Workspace'), (c) => {
     const latestOnly = c.req.query('latest') === 'true';
     const wsIdParam = c.req.query('workspaceId');
     const workspaceId = wsIdParam ? parseInt(wsIdParam, 10) : undefined;

@@ -13,7 +13,7 @@ describe('API Endpoints', () => {
       fs.unlinkSync(testDbPath);
     }
     const repo = new WorkspaceRepository(testDbPath);
-    app = createApp(repo);
+    app = createApp(repo, undefined, { authRequired: false });
   });
 
   it('verifies startup workspace is created', async () => {

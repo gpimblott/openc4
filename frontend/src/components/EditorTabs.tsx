@@ -11,6 +11,7 @@ interface EditorTabsProps {
   onCloseTab: (tab: string, e: React.MouseEvent) => void;
   onNewFile: () => void;
   onToggleFileTree: () => void;
+  readOnly?: boolean;
 }
 
 export const EditorTabs: React.FC<EditorTabsProps> = ({
@@ -23,7 +24,8 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
   onSelectTab,
   onCloseTab,
   onNewFile,
-  onToggleFileTree
+  onToggleFileTree,
+  readOnly = false,
 }) => {
   return (
     <div className="flex items-center bg-slate-950/70 border-b border-slate-800 text-xs overflow-x-auto select-none no-scrollbar">
@@ -94,14 +96,16 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
         })}
 
         {/* Quick add file tab */}
-        <button
-          type="button"
-          onClick={onNewFile}
-          title="New file"
-          className="px-2.5 py-2 text-slate-500 hover:text-white hover:bg-slate-900 transition-colors flex items-center shrink-0"
-        >
-          <Plus size={13} />
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onNewFile}
+            title="New file"
+            className="px-2.5 py-2 text-slate-500 hover:text-white hover:bg-slate-900 transition-colors flex items-center shrink-0"
+          >
+            <Plus size={13} />
+          </button>
+        )}
       </div>
     </div>
   );

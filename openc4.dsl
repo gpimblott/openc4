@@ -10,30 +10,41 @@ workspace "OpenC4" "Architecture model of OpenC4 open-source C4 architecture pla
             backendServer = container "Backend Server" "REST API and MCP server handling workspace storage, compilation, validation, and CLI communication." "Node.js, TypeScript, Hono" "ServerApp" {
                 workspaceApi = component "Workspace Controller" "Handles workspace CRUD, drafts, version publishing, locks, and enterprise catalog APIs." "Hono Route Handler"
                 cliApi = component "Structurizr CLI Controller" "Implements official Structurizr Web API endpoints (/api/workspace/*) for push/pull CLI interoperability." "Hono Route Handler"
+                authController = component "Auth & RBAC Controller" "Handles authentication (/api/auth/login), session tokens, CASL abilities, and user CRUD." "Hono Route Handler"
+                authService = component "Auth Service & Provider Registry" "Manages credentials, scrypt password hashing, JWT issuance, and enterprise SSO providers." "TypeScript Class"
+                caslGuard = component "CASL Authorization Guard" "Enforces isomorphic permissions (admin, editor, viewer) on API endpoints using @casl/ability." "Hono Middleware"
                 mcpController = component "MCP Controller" "JSON-RPC endpoint (/mcp) implementing Model Context Protocol tools (validate_dsl, inspect_workspace, export_diagram, query_model)." "Hono Route Handler"
                 parser = component "DSL Lexer & Parser" "Tokenizes and parses Structurizr DSL source into typed AST models." "TypeScript Module"
                 compiler = component "C4 Model Compiler" "Compiles AST into Structurizr JSON, Mermaid, PlantUML, and React Flow canvas layouts." "TypeScript Module"
                 inspector = component "Architecture Linter" "Automated rule checker identifying orphaned elements, missing metadata, and implied conflicts." "TypeScript Module"
                 diffEngine = component "Visual Diff Engine" "Compares workspace versions and computes added, modified, and removed elements." "TypeScript Module"
-                repository = component "Workspace Repository" "Manages SQLite persistence for workspaces, revisions, API keys, locks, and catalog entries." "TypeScript Class / better-sqlite3"
+                repository = component "Workspace Repository" "Manages SQLite persistence for workspaces, revisions, users, API keys, locks, and catalog entries." "TypeScript Class / better-sqlite3"
             }
-            database = container "Database" "Persists workspaces, DSL source code, revision history, API credentials, and enterprise catalog." "SQLite" "Database"
+            database = container "Database" "Persists workspaces, DSL source code, revision history, user credentials, roles, API credentials, and enterprise catalog." "SQLite" "Database"
         }
 
         cliTool = softwareSystem "Structurizr CLI" "Official command-line tool for pushing/pulling DSL models in CI/CD pipelines." "ExternalTool"
         docSites = softwareSystem "Documentation Sites" "GitHub/GitLab READMEs, Notion, and static doc sites rendering exported Mermaid diagrams." "ExternalSystem"
+        idp = softwareSystem "Enterprise Identity Provider" "Corporate Single Sign-On provider (OIDC, SAML 2.0, LDAP/Active Directory)." "ExternalSystem"
 
         # People & external relationships
-        architect -> webStudio "Edits architecture DSL, views diagrams, and manages catalog" "HTTPS"
-        developer -> webStudio "Explores system, container, and component diagrams" "HTTPS"
+        architect -> webStudio "Authenticates, edits architecture DSL, views diagrams, and manages RBAC users" "HTTPS"
+        developer -> webStudio "Explores system, container, and component diagrams (Viewer/Editor)" "HTTPS"
         aiAgent -> mcpController "Invokes MCP tools to validate, inspect, query, and export models" "JSON-RPC / HTTP"
         cicdPipeline -> cliTool "Executes push and pull commands" "CLI"
         cliTool -> cliApi "Pushes and pulls workspace models" "HTTP / REST"
 
         # Container & component relationships
+        webStudio -> authController "Authenticates users, verifies sessions, and retrieves CASL abilities" "JSON / REST"
         webStudio -> workspaceApi "Fetches workspaces, saves layout coordinates, and manages catalog" "JSON / REST"
         webStudio -> docSites "Exports Mermaid diagrams to" "Markdown"
 
+        authController -> authService "Delegates credential verification, user management, and provider routing" "Internal Call"
+        authController -> caslGuard "Applies CASL permission checks to user endpoints" "Internal Call"
+        authService -> repository "Persists user accounts, password hashes, and roles" "Internal Call"
+        authService -> idp "Delegates enterprise authentication and maps groups to roles" "OIDC / OAuth2"
+
+        workspaceApi -> caslGuard "Validates user read/write/publish abilities before processing actions" "Internal Call"
         workspaceApi -> repository "Queries and updates workspace records" "Internal Call"
         workspaceApi -> parser "Parses DSL source code" "Internal Call"
         workspaceApi -> compiler "Compiles AST to JSON and layout coordinates" "Internal Call"

@@ -194,7 +194,33 @@ OpenC4 is built to fit smoothly into existing engineering workflows and document
 
 ---
 
+## Authentication & Role-Based Access Control (RBAC)
+
+OpenC4 provides a standalone, zero-dependency authentication and RBAC subsystem built with **[CASL](https://casl.js.org/)** for isomorphic authorization across the backend API and frontend studio. It operates out-of-the-box using local SQLite persistence (with salt-based `scrypt` password hashing) and supports enterprise SSO integration (OIDC, SAML, LDAP) via an extensible provider interface.
+
+### Default Seeded User Accounts
+
+The application automatically seeds three default user accounts on first startup:
+
+| Username | Password | Role | Permissions & Access Level |
+| :--- | :--- | :--- | :--- |
+| `admin` | `admin123` | **`admin`** | **Full Control (`manage: all`)**: Manage workspaces, publish releases, administer users, and change role assignments. |
+| `architect` | `architect123` | **`editor`** | **Authoring**: Create, edit, save, compile, and publish workspace releases. Cannot manage user accounts. |
+| `viewer` | `viewer123` | **`viewer`** | **Read-Only**: Explore diagrams, inspect models, browse enterprise catalog, and view diffs. Editing and publishing are disabled. |
+
+> [!TIP]
+> **1-Click Quick Role Switcher**: Click your user avatar in the top navigation bar to open the user menu and instantly switch between `Admin`, `Architect`, and `Viewer` accounts without manual re-login to test role behaviors and UI restrictions.
+
+---
+
 ## Quick Start
+
+### Default Sign-In Credentials
+
+Sign in to the Web Studio using any of the seeded accounts:
+- **Admin**: `admin` / `admin123`
+- **Architect (Editor)**: `architect` / `architect123`
+- **Viewer (Read-Only)**: `viewer` / `viewer123`
 
 ### Option 1: Run Locally (Node.js / TypeScript)
 

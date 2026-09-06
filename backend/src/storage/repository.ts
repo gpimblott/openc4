@@ -59,6 +59,19 @@ export interface WorkspaceFileRecord {
   updatedAt: string;
 }
 
+export interface UserRecord {
+  id: number;
+  username: string;
+  email: string;
+  displayName: string;
+  passwordHash: string | null;
+  salt: string | null;
+  role: string;
+  provider: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const DEFAULT_DB_PATH = path.resolve('data/structurizr.db');
 
 export class WorkspaceRepository {
@@ -137,6 +150,19 @@ export class WorkspaceRepository {
         created_at TEXT NOT NULL,
         PRIMARY KEY (workspace_id, folder_path),
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        password_hash TEXT,
+        salt TEXT,
+        role TEXT NOT NULL DEFAULT 'viewer',
+        provider TEXT NOT NULL DEFAULT 'local',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
   }
@@ -593,5 +619,112 @@ export class WorkspaceRepository {
     updateFiles.run(cleanNew, cleanOld, now, workspaceId, `${cleanOld}/%`, 'workspace.dsl');
 
     return true;
+  }
+
+  createUser(user: {
+    username: string;
+    email: string;
+    displayName: string;
+    passwordHash?: string | null;
+    salt?: string | null;
+    role?: string;
+    provider?: string;
+  }): UserRecord {
+    const now = new Date().toISOString();
+    const role = user.role || 'viewer';
+    const provider = user.provider || 'local';
+    const stmt = this.db.prepare(`
+      INSERT INTO users (username, email, display_name, password_hash, salt, role, provider, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      user.username.trim().toLowerCase(),
+      user.email.trim(),
+      user.displayName.trim(),
+      user.passwordHash || null,
+      user.salt || null,
+      role,
+      provider,
+      now,
+      now
+    );
+    return this.getUserById(Number(res.lastInsertRowid))!;
+  }
+
+  getUserById(id: number): UserRecord | null {
+    const stmt = this.db.prepare(`SELECT * FROM users WHERE id = ?`);
+    const row: any = stmt.get(id);
+    if (!row) return null;
+    return this.mapUserRow(row);
+  }
+
+  getUserByUsername(username: string): UserRecord | null {
+    const stmt = this.db.prepare(`SELECT * FROM users WHERE LOWER(username) = LOWER(?)`);
+    const row: any = stmt.get(username.trim());
+    if (!row) return null;
+    return this.mapUserRow(row);
+  }
+
+  listUsers(): UserRecord[] {
+    const stmt = this.db.prepare(`SELECT * FROM users ORDER BY id ASC`);
+    const rows = stmt.all() as any[];
+    return rows.map((r) => this.mapUserRow(r));
+  }
+
+  countUsers(): number {
+    const stmt = this.db.prepare(`SELECT COUNT(*) as count FROM users`);
+    const row: any = stmt.get();
+    return Number(row?.count || 0);
+  }
+
+  updateUser(
+    id: number,
+    updates: {
+      email?: string;
+      displayName?: string;
+      role?: string;
+      passwordHash?: string | null;
+      salt?: string | null;
+    }
+  ): UserRecord | null {
+    const curr = this.getUserById(id);
+    if (!curr) return null;
+
+    const now = new Date().toISOString();
+    const email = updates.email !== undefined ? updates.email.trim() : curr.email;
+    const displayName = updates.displayName !== undefined ? updates.displayName.trim() : curr.displayName;
+    const role = updates.role !== undefined ? updates.role : curr.role;
+    const passwordHash = updates.passwordHash !== undefined ? updates.passwordHash : curr.passwordHash;
+    const salt = updates.salt !== undefined ? updates.salt : curr.salt;
+
+    const stmt = this.db.prepare(`
+      UPDATE users
+      SET email = ?, display_name = ?, role = ?, password_hash = ?, salt = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(email, displayName, role, passwordHash, salt, now, id);
+
+    return this.getUserById(id);
+  }
+
+  deleteUser(id: number): boolean {
+    const stmt = this.db.prepare(`DELETE FROM users WHERE id = ?`);
+    const res = stmt.run(id);
+    return res.changes > 0;
+  }
+
+  private mapUserRow(row: any): UserRecord {
+    return {
+      id: Number(row.id),
+      username: row.username,
+      email: row.email,
+      displayName: row.display_name,
+      passwordHash: row.password_hash,
+      salt: row.salt,
+      role: row.role,
+      provider: row.provider,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
   }
 }

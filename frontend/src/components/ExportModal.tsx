@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Download, Copy, Check } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   isOpen: boolean;
@@ -14,6 +15,7 @@ export const ExportModal: React.FC<Props> = ({
   workspaceId,
   currentViewKey,
 }) => {
+  const { authFetch } = useAuth();
   const [format, setFormat] = useState<'mermaid' | 'plantuml' | 'json' | 'dsl'>('mermaid');
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
@@ -22,7 +24,7 @@ export const ExportModal: React.FC<Props> = ({
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch(`/api/workspaces/${workspaceId}/export?format=${format}&viewKey=${currentViewKey}`)
+    authFetch(`/api/workspaces/${workspaceId}/export?format=${format}&viewKey=${currentViewKey}`)
       .then((res) => res.text())
       .then((data) => {
         setContent(data);

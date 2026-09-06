@@ -2,5 +2,8 @@ node_modules/
 dist/
 data/*.db
 data/test_*.db
+backend/data/*.db
+backend/data/test_*.db
 .DS_Store
 *.log
+

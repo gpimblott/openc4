@@ -32,6 +32,7 @@ interface FileTreeProps {
   onDeleteFolder?: (folderPath: string) => void;
   onMoveFile?: (sourcePath: string, targetPath: string) => void;
   onToggleCollapse?: () => void;
+  readOnly?: boolean;
 }
 
 interface TreeNode {
@@ -133,7 +134,8 @@ export const FileTree: React.FC<FileTreeProps> = ({
   onDeleteFile,
   onDeleteFolder,
   onMoveFile,
-  onToggleCollapse
+  onToggleCollapse,
+  readOnly = false
 }) => {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   
@@ -321,45 +323,47 @@ export const FileTree: React.FC<FileTreeProps> = ({
               <span className="truncate">{node.name}</span>
             </div>
 
-            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 text-slate-400">
-              <button
-                type="button"
-                title="New file in this folder"
-                className="hover:text-blue-400 p-0.5 rounded"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startCreate(node.fullPath);
-                }}
-              >
-                <FilePlus size={12} />
-              </button>
-              <button
-                type="button"
-                title="New subfolder"
-                className="hover:text-amber-400 p-0.5 rounded"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startCreateFolder(node.fullPath);
-                }}
-              >
-                <FolderPlus size={12} />
-              </button>
-              {onDeleteFolder && (
+            {!readOnly && (
+              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 text-slate-400">
                 <button
                   type="button"
-                  title="Delete Folder"
-                  className="hover:text-rose-400 p-0.5 rounded"
+                  title="New file in this folder"
+                  className="hover:text-blue-400 p-0.5 rounded"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm(`Delete folder '${node.fullPath}' and its contents?`)) {
-                      onDeleteFolder(node.fullPath);
-                    }
+                    startCreate(node.fullPath);
                   }}
                 >
-                  <Trash2 size={11} />
+                  <FilePlus size={12} />
                 </button>
-              )}
-            </div>
+                <button
+                  type="button"
+                  title="New subfolder"
+                  className="hover:text-amber-400 p-0.5 rounded"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreateFolder(node.fullPath);
+                  }}
+                >
+                  <FolderPlus size={12} />
+                </button>
+                {onDeleteFolder && (
+                  <button
+                    type="button"
+                    title="Delete Folder"
+                    className="hover:text-rose-400 p-0.5 rounded"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete folder '${node.fullPath}' and its contents?`)) {
+                        onDeleteFolder(node.fullPath);
+                      }
+                    }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {!isCollapsed && (
@@ -407,7 +411,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
     }
 
     // Leaf file
-    const isDraggable = !isEntry;
+    const isDraggable = !readOnly && !isEntry;
     const isBeingDragged = draggedFile === node.fullPath;
 
     return (
@@ -483,7 +487,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
           )}
         </div>
 
-        {!isEditing && (
+        {!readOnly && !isEditing && (
           <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-slate-500 ml-1">
             {!isEntry && (
               <>
@@ -538,22 +542,26 @@ export const FileTree: React.FC<FileTreeProps> = ({
           </span>
         </span>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            title="New File"
-            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
-            onClick={() => startCreate('')}
-          >
-            <FilePlus size={13} />
-          </button>
-          <button
-            type="button"
-            title="New Folder"
-            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
-            onClick={() => startCreateFolder('')}
-          >
-            <FolderPlus size={13} />
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                type="button"
+                title="New File"
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
+                onClick={() => startCreate('')}
+              >
+                <FilePlus size={13} />
+              </button>
+              <button
+                type="button"
+                title="New Folder"
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
+                onClick={() => startCreateFolder('')}
+              >
+                <FolderPlus size={13} />
+              </button>
+            </>
+          )}
           {onToggleCollapse && (
             <button
               type="button"

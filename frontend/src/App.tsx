@@ -50,6 +50,11 @@ import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { FileTree } from './components/FileTree';
 import { EditorTabs } from './components/EditorTabs';
+import { useAuth } from './context/AuthContext';
+import { UserMenu } from './components/UserMenu';
+import { LoginModal } from './components/LoginModal';
+import { UserManagementModal } from './components/UserManagementModal';
+import { Lock } from 'lucide-react';
 
 const nodeTypes = {
   c4Node: C4Node,
@@ -86,6 +91,16 @@ interface ViewOption {
 }
 
 export function App() {
+  const {
+    user,
+    canEdit,
+    canPublish,
+    authFetch,
+    isLoginModalOpen,
+    setIsLoginModalOpen
+  } = useAuth();
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState<boolean>(false);
+
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number>(1);
   const [workspaceInfo, setWorkspaceInfo] = useState<any>(null);
@@ -203,20 +218,22 @@ export function App() {
 
   // Load list of workspaces
   const loadWorkspaces = useCallback(() => {
-    fetch('/api/workspaces')
+    authFetch('/api/workspaces')
       .then((res) => res.json())
       .then((data) => {
-        setWorkspaces(data);
-        if (data.length > 0 && !currentWorkspaceId) {
-          setCurrentWorkspaceId(data[0].id);
+        if (Array.isArray(data)) {
+          setWorkspaces(data);
+          if (data.length > 0 && !currentWorkspaceId) {
+            setCurrentWorkspaceId(data[0].id);
+          }
         }
       })
       .catch((err) => console.error('Failed to load workspaces', err));
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, authFetch]);
 
   useEffect(() => {
     loadWorkspaces();
-  }, [loadWorkspaces]);
+  }, [loadWorkspaces, user]);
 
   const boundariesRef = useRef<BoundaryInfo[]>([]);
 
@@ -248,9 +265,10 @@ export function App() {
       ? `/api/workspaces/${wsId}/studio?viewKey=${encodeURIComponent(viewKey)}`
       : `/api/workspaces/${wsId}/studio`;
 
-    fetch(url)
+    authFetch(url)
       .then((res) => res.json())
       .then((data) => {
+        if (!data || !data.workspace) return;
         setWorkspaceInfo(data.workspace);
         const incomingFiles: Record<string, string> = data.files || {};
         const entry = data.entryPoint || 'workspace.dsl';
@@ -285,13 +303,13 @@ export function App() {
         }
       })
       .catch((err) => console.error('Failed to load studio data', err));
-  }, [applyCanvasData]);
+  }, [applyCanvasData, authFetch]);
 
   useEffect(() => {
     if (currentWorkspaceId) {
       loadStudioData(currentWorkspaceId);
     }
-  }, [currentWorkspaceId, loadStudioData]);
+  }, [currentWorkspaceId, loadStudioData, user]);
 
   // Update browser window title
   useEffect(() => {
@@ -348,6 +366,10 @@ export function App() {
   };
 
   const handleCreateFile = (filePath: string) => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot create files' });
+      return;
+    }
     // Flush current editor buffer
     const currentActive = activeFileRef.current;
     const currentFiles = { ...filesRef.current, [currentActive]: dslCode };
@@ -355,7 +377,7 @@ export function App() {
     setFiles(currentFiles);
 
     const initialContent = `// ${filePath}\n`;
-    fetch(`/api/workspaces/${currentWorkspaceId}/files`, {
+    authFetch(`/api/workspaces/${currentWorkspaceId}/files`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath, content: initialContent }),
@@ -380,7 +402,11 @@ export function App() {
   };
 
   const handleRenameFile = (oldPath: string, newPath: string) => {
-    fetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot rename files' });
+      return;
+    }
+    authFetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ oldPath, newPath }),
@@ -409,7 +435,11 @@ export function App() {
   };
 
   const handleDeleteFile = (filePath: string) => {
-    fetch(`/api/workspaces/${currentWorkspaceId}/files?path=${encodeURIComponent(filePath)}`, {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot delete files' });
+      return;
+    }
+    authFetch(`/api/workspaces/${currentWorkspaceId}/files?path=${encodeURIComponent(filePath)}`, {
       method: 'DELETE',
     })
       .then((res) => res.json())
@@ -438,7 +468,11 @@ export function App() {
   };
 
   const handleCreateFolder = (folderPath: string) => {
-    fetch(`/api/workspaces/${currentWorkspaceId}/folders`, {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot create folders' });
+      return;
+    }
+    authFetch(`/api/workspaces/${currentWorkspaceId}/folders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderPath }),
@@ -459,7 +493,11 @@ export function App() {
   };
 
   const handleDeleteFolder = (folderPath: string) => {
-    fetch(`/api/workspaces/${currentWorkspaceId}/folders?path=${encodeURIComponent(folderPath)}`, {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot delete folders' });
+      return;
+    }
+    authFetch(`/api/workspaces/${currentWorkspaceId}/folders?path=${encodeURIComponent(folderPath)}`, {
       method: 'DELETE',
     })
       .then((res) => res.json())
@@ -499,6 +537,10 @@ export function App() {
   };
 
   const handleMoveFile = (oldPath: string, newPath: string) => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot move files' });
+      return;
+    }
     if (oldPath === newPath) return;
     if (oldPath === entryPoint) {
       setToast({ type: 'error', message: 'Cannot move root entry point workspace.dsl' });
@@ -541,7 +583,7 @@ export function App() {
     }
 
     // Call backend rename
-    fetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
+    authFetch(`/api/workspaces/${currentWorkspaceId}/files/rename`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ oldPath, newPath }),
@@ -558,7 +600,7 @@ export function App() {
           });
 
           // Recompile with updated files
-          fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+          authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -589,6 +631,7 @@ export function App() {
 
   // Handle DSL code change with instant live compilation (<50ms debounce)
   const handleEditorChange = (value: string | undefined) => {
+    if (!canEdit) return;
     const newCode = value || '';
     setDslCode(newCode);
     const currActive = activeFileRef.current;
@@ -606,7 +649,7 @@ export function App() {
     }
 
     compileTimerRef.current = setTimeout(() => {
-      fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+      authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -637,6 +680,10 @@ export function App() {
 
   // Save workspace
   const handleSave = () => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot save changes' });
+      return;
+    }
     setIsSaving(true);
     // Collect updated coordinates (only for real elements, not boundary)
     const layoutCoords: Record<string, Record<string, { x: number; y: number }>> = {};
@@ -653,7 +700,7 @@ export function App() {
     filesRef.current = currentFiles;
     setFiles(currentFiles);
 
-    fetch(`/api/workspaces/${currentWorkspaceId}/save`, {
+    authFetch(`/api/workspaces/${currentWorkspaceId}/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -691,7 +738,7 @@ export function App() {
   // Switch View (compiles current in-editor DSL for the target view)
   const handleViewChange = (viewKey: string) => {
     setCurrentViewKey(viewKey);
-    fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+    authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dsl: dslCode, viewKey }),
@@ -711,19 +758,24 @@ export function App() {
 
   // Request deletion with confirmation dialog
   const requestDelete = useCallback((nodesToDelete: Node[], edgesToDelete: Edge[]) => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot delete elements' });
+      return;
+    }
     if (nodesToDelete.length === 0 && edgesToDelete.length === 0) return;
     setPendingDeleteNodes(nodesToDelete);
     setPendingDeleteEdges(edgesToDelete);
     setIsConfirmDeleteOpen(true);
-  }, []);
+  }, [canEdit]);
 
   // Execute confirmed deletion
   const handleConfirmDelete = async () => {
+    if (!canEdit) return;
     if (pendingDeleteNodes.length === 0 && pendingDeleteEdges.length === 0) return;
     setIsDeleting(true);
 
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspaceId}/delete`, {
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -769,13 +821,14 @@ export function App() {
   // Intercept ReactFlow delete key (Backspace/Delete)
   const onBeforeDelete = useCallback(
     async ({ nodes: n, edges: e }: { nodes: Node[]; edges: Edge[] }) => {
+      if (!canEdit) return false;
       const filteredNodes = n.filter((node) => node.type !== 'c4Boundary');
       if (filteredNodes.length > 0 || e.length > 0) {
         requestDelete(filteredNodes, e);
       }
       return false; // Prevent local deletion; wait for modal confirmation
     },
-    [requestDelete]
+    [canEdit, requestDelete]
   );
 
   // Double-click drill down
@@ -830,13 +883,13 @@ export function App() {
   // Load Catalog data (latest component versions for current workspace)
   const loadCatalog = useCallback((wsId?: number) => {
     const targetWsId = wsId ?? currentWorkspaceId;
-    fetch(`/api/enterprise/catalog?latest=true&workspaceId=${targetWsId}`)
+    authFetch(`/api/enterprise/catalog?latest=true&workspaceId=${targetWsId}`)
       .then((res) => res.json())
       .then((data) => {
         setCatalog(data);
       })
       .catch((err) => console.error('Failed to load catalog', err));
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, authFetch]);
 
   useEffect(() => {
     loadCatalog();
@@ -844,6 +897,10 @@ export function App() {
 
   // Insert snippet from Catalog into DSL model
   const handleInsertDsl = (snippet: string) => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot insert snippets' });
+      return;
+    }
     let updated = dslCode;
     const modelIndex = updated.indexOf('model {');
     if (modelIndex !== -1) {
@@ -886,7 +943,7 @@ export function App() {
       return;
     }
 
-    fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}`)
+    authFetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}`)
       .then((res) => res.json())
       .then((snap) => {
         if (snap.dslSource) {
@@ -897,7 +954,7 @@ export function App() {
             version: version,
             state: 'PUBLISHED',
           }));
-          fetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
+          authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dsl: snap.dslSource, viewKey: currentViewKey }),
@@ -919,8 +976,12 @@ export function App() {
 
   // Restore past version as active workspace model
   const handleRestoreVersionSubmit = async (version: string): Promise<boolean> => {
+    if (!canPublish) {
+      setToast({ type: 'error', message: 'Permission denied: Cannot restore versions' });
+      return false;
+    }
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}/load`, {
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/versions/${encodeURIComponent(version)}/load`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -953,7 +1014,7 @@ export function App() {
     if (v2) params.append('v2', v2);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
-    fetch(`/api/workspaces/${currentWorkspaceId}/diff${qs}`)
+    authFetch(`/api/workspaces/${currentWorkspaceId}/diff${qs}`)
       .then((res) => res.json())
       .then((data) => {
         setDiffData(data);
@@ -964,8 +1025,12 @@ export function App() {
 
   // Publish workspace
   const handlePublishSubmit = async (version: string, commitMessage: string): Promise<boolean> => {
+    if (!canPublish) {
+      setToast({ type: 'error', message: 'Permission denied: Cannot publish versions' });
+      return false;
+    }
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspaceId}/publish`, {
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version, commitMessage, dsl: dslCode }),
@@ -996,12 +1061,16 @@ export function App() {
     description: string,
     template: 'context' | 'blank'
   ): Promise<boolean> => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Permission denied: Cannot create workspaces' });
+      return false;
+    }
     try {
       const payload: any = { name, description };
       if (template === 'blank') {
         payload.dsl = `workspace "${name}" "${description}" {\n    model {\n    }\n    views {\n    }\n}`;
       }
-      const res = await fetch('/api/workspaces', {
+      const res = await authFetch('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1060,13 +1129,15 @@ export function App() {
               ))}
             </select>
 
-            <button
-              onClick={() => setIsCreateWorkspaceModalOpen(true)}
-              title="Create New Architecture Workspace"
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setIsCreateWorkspaceModalOpen(true)}
+                title="Create New Architecture Workspace"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Status & Version Pill with Interactive Version Dropdown */}
@@ -1154,7 +1225,7 @@ export function App() {
                           className={`p-2.5 rounded-lg flex flex-col gap-1 border transition ${
                             selectedVersion === ver.version
                               ? 'bg-purple-600/20 border-purple-500/40 text-purple-200'
-                              : 'bg-slate-850/50 border-slate-800 hover:border-slate-750 text-slate-300'
+                              : 'bg-slate-855/50 border-slate-800 hover:border-slate-750 text-slate-300'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -1176,15 +1247,17 @@ export function App() {
                             >
                               View Snapshot
                             </button>
-                            <button
-                              onClick={() => {
-                                setRestoreTargetVersion(ver.version);
-                                setIsVersionDropdownOpen(false);
-                              }}
-                              className="flex-1 py-1 text-[10px] font-semibold bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white rounded border border-purple-500/30 transition text-center"
-                            >
-                              Restore as Active
-                            </button>
+                            {canPublish && (
+                              <button
+                                onClick={() => {
+                                  setRestoreTargetVersion(ver.version);
+                                  setIsVersionDropdownOpen(false);
+                                }}
+                                className="flex-1 py-1 text-[10px] font-semibold bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white rounded border border-purple-500/30 transition text-center"
+                              >
+                                Restore as Active
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))
@@ -1254,30 +1327,47 @@ export function App() {
 
           <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 
-          {/* Save Button */}
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            title="Save DSL & Canvas Coordinates"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow shrink-0 ${
-              saveSuccess
-                ? 'bg-emerald-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-500 text-white'
-            }`}
-          >
-            {saveSuccess ? <Check className="w-3.5 h-3.5 shrink-0" /> : <Save className="w-3.5 h-3.5 shrink-0" />}
-            <span>{saveSuccess ? 'Saved' : isSaving ? 'Saving...' : 'Save'}</span>
-          </button>
+          {/* Save Button or Read-Only Badge */}
+          {canEdit ? (
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              title="Save DSL & Canvas Coordinates"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow shrink-0 cursor-pointer ${
+                saveSuccess
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white'
+              }`}
+            >
+              {saveSuccess ? <Check className="w-3.5 h-3.5 shrink-0" /> : <Save className="w-3.5 h-3.5 shrink-0" />}
+              <span>{saveSuccess ? 'Saved' : isSaving ? 'Saving...' : 'Save'}</span>
+            </button>
+          ) : (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/80 text-slate-400 border border-slate-700 shrink-0 select-none"
+              title="You have read-only access (Viewer role)"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="hidden sm:inline">Read-Only</span>
+            </div>
+          )}
 
           {/* Publish Button */}
-          <button
-            onClick={() => setIsPublishModalOpen(true)}
-            title="Publish Release Version to Catalog"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition shrink-0 cursor-pointer"
-          >
-            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
-            <span>Publish</span>
-          </button>
+          {canPublish && (
+            <button
+              onClick={() => setIsPublishModalOpen(true)}
+              title="Publish Release Version to Catalog"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition shrink-0 cursor-pointer"
+            >
+              <UploadCloud className="w-3.5 h-3.5 shrink-0" />
+              <span>Publish</span>
+            </button>
+          )}
+
+          <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
+
+          {/* User Profile & Role Switcher Menu */}
+          <UserMenu onOpenUserManagement={() => setIsUserManagementOpen(true)} />
         </div>
       </header>
 
@@ -1425,6 +1515,7 @@ export function App() {
                   onDeleteFolder={handleDeleteFolder}
                   onMoveFile={handleMoveFile}
                   onToggleCollapse={() => setIsFileTreeCollapsed(true)}
+                  readOnly={!canEdit}
                 />
               </div>
             )}
@@ -1441,11 +1532,21 @@ export function App() {
                 onSelectTab={handleSelectFile}
                 onCloseTab={handleCloseTab}
                 onNewFile={() => {
+                  if (!canEdit) return;
                   const name = prompt('New file path (e.g. systems/auth.dsl):');
                   if (name) handleCreateFile(name);
                 }}
                 onToggleFileTree={() => setIsFileTreeCollapsed((prev) => !prev)}
+                readOnly={!canEdit}
               />
+
+              {/* Viewer Read-Only Banner */}
+              {!canEdit && (
+                <div className="bg-amber-500/10 border-b border-amber-500/20 px-3 py-1.5 text-xs text-amber-300 flex items-center gap-2 select-none shrink-0">
+                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Read-Only mode: You have viewing access to this architecture model. Editing is disabled.</span>
+                </div>
+              )}
 
               <div className="flex-1 overflow-hidden h-full">
                 <Editor
@@ -1456,6 +1557,7 @@ export function App() {
                   onChange={handleEditorChange}
                   beforeMount={registerStructurizrDsl}
                   options={{
+                    readOnly: !canEdit,
                     fontSize: 13,
                     fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
                     minimap: { enabled: false },
@@ -1563,7 +1665,7 @@ export function App() {
             </button>
 
             {/* Delete button when nodes or edges are selected */}
-            {(nodes.some((n) => n.selected && n.type !== 'c4Boundary') || edges.some((e) => e.selected)) && (
+            {canEdit && (nodes.some((n) => n.selected && n.type !== 'c4Boundary') || edges.some((e) => e.selected)) && (
               <>
                 <div className="h-3.5 w-px bg-slate-700" />
                 <button
@@ -1683,6 +1785,16 @@ export function App() {
         version={restoreTargetVersion}
         versionDetails={versions.find((v) => v.version === restoreTargetVersion)}
         onRestore={handleRestoreVersionSubmit}
+      />
+
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
+
+      <UserManagementModal
+        isOpen={isUserManagementOpen}
+        onClose={() => setIsUserManagementOpen(false)}
       />
 
       <Toast toast={toast} onClose={() => setToast(null)} />
