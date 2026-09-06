@@ -115,6 +115,118 @@ button {
   padding-right: 1.5rem;
 }
 
+/* Prototype Notice Banner */
+.prototype-banner {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.14) 0%, rgba(217, 119, 6, 0.08) 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 0.55rem 0;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 60;
+}
+
+[data-theme="light"] .prototype-banner {
+  background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%);
+  border-bottom: 1px solid #fde68a;
+}
+
+.prototype-banner-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.prototype-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.prototype-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-full);
+}
+
+[data-theme="light"] .prototype-badge {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #f59e0b;
+}
+
+.prototype-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+.prototype-text {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.prototype-text strong {
+  color: #f59e0b;
+}
+
+[data-theme="light"] .prototype-text strong {
+  color: #b45309;
+}
+
+.prototype-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #f59e0b;
+  transition: color var(--transition-fast);
+}
+
+.prototype-link:hover {
+  color: #fbbf24;
+  text-decoration: underline;
+}
+
+[data-theme="light"] .prototype-link {
+  color: #b45309;
+}
+
+[data-theme="light"] .prototype-link:hover {
+  color: #78350f;
+}
+
 /* Navigation */
 .navbar {
   position: sticky;

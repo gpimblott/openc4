@@ -1,5 +1,9 @@
 # OpenC4 — Open Source C4 Architecture Tool
 
+> [!WARNING]
+> ### 🚧 Prototype — Work in Progress
+> **OpenC4 is currently an early-stage prototype under active development.** Core features, APIs, and DSL specifications are evolving rapidly. Feedback, issue reports, and contributions are warmly welcomed!
+
 **OpenC4** is an open source C4 architecture tool designed to model, visualize, and document software architecture using the [C4 model](https://c4model.com/). It provides an interactive web-based studio, real-time diagram generation, and enterprise collaboration features while maintaining complete compatibility with ecosystem standards such as **Structurizr**, **Mermaid**, and **PlantUML**.
 
 <p align="center">

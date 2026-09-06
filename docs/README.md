@@ -1,5 +1,9 @@
 # OpenC4 GitHub Pages Website
 
+> [!WARNING]
+> ### 🚧 Prototype — Work in Progress
+> OpenC4 is currently an early-stage prototype under active development.
+
 This directory (`/docs`) contains the static documentation and showcase website for **OpenC4** — the open-source C4 architecture tool.
 
 ## Features of this Website
