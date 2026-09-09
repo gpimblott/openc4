@@ -269,6 +269,13 @@ OpenC4 provides a built-in MCP server at `POST /mcp` compatible with the Structu
 * `export_diagram`: Exports diagrams to Mermaid, C4-PlantUML, or Structurizr JSON.
 * `query_model`: Searches systems, containers, components, and relationships.
 
+### Local Structurizr MCP Validation in Web Studio
+OpenC4 Web Studio includes a dedicated **MCP Validate** tool enabling architects to validate their Structurizr DSL against any running local or remote Structurizr MCP server (e.g., OpenC4 on `http://localhost:8000/mcp` or external Structurizr MCP servers on `http://localhost:8080/mcp`):
+- **Server Location Configuration**: Specify and test connectivity to any local or custom MCP endpoint; remembers preferences in local storage.
+- **On-Demand Validation**: Trigger validation for the entire workspace (with multi-file `!include` preprocessing and line mapping) or the active file.
+- **Diagnostics & Error Mapping**: Displays workspace metrics (elements, relationships, views, latency) on success, or pinpoints syntax errors with code snippet previews and one-click "Jump to Error in Editor".
+- **Raw JSON-RPC Inspector**: Collapsible viewer to inspect the raw JSON-RPC 2.0 payload returned by the MCP server.
+
 ---
 
 ## Verification & Testing

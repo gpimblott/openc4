@@ -221,6 +221,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   for (const s of ws.model.softwareSystems) {
     allElements[s.id] = {
       id: s.id,
+      identifier: s.identifier,
       type: 'softwareSystem',
       name: s.name,
       description: s.description,
@@ -231,6 +232,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     for (const c of s.containers) {
       allElements[c.id] = {
         id: c.id,
+        identifier: c.identifier,
         type: 'container',
         name: c.name,
         description: c.description,
@@ -242,6 +244,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       for (const comp of c.components) {
         allElements[comp.id] = {
           id: comp.id,
+          identifier: comp.identifier,
           type: 'component',
           name: comp.name,
           description: comp.description,
@@ -253,6 +256,17 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       }
     }
   }
+
+  // Helper to find element by ID, identifier, or name
+  const findElement = (idOrIdent?: string | null): any => {
+    if (!idOrIdent) return null;
+    if (allElements[idOrIdent]) return allElements[idOrIdent];
+    return (
+      Object.values(allElements).find(
+        (e: any) => e.id === idOrIdent || e.identifier === idOrIdent || e.name === idOrIdent
+      ) || null
+    );
+  };
 
   // Helper hierarchy getters
   const getSystemId = (id: string): string | null => {
@@ -282,7 +296,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       for (const p of ws.model.people) visibleElementIds.add(p.id);
       for (const s of ws.model.softwareSystems) visibleElementIds.add(s.id);
     } else if (view.viewType === 'systemcontext') {
-      const targetSysId = view.softwareSystemId;
+      const targetSys = findElement(view.softwareSystemId);
+      const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
       if (targetSysId && allElements[targetSysId]) {
         visibleElementIds.add(targetSysId);
         // Find people and software systems that have direct or implied relationships with targetSysId
@@ -312,12 +327,14 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         for (const s of ws.model.softwareSystems) visibleElementIds.add(s.id);
       }
     } else if (view.viewType === 'container') {
-      const targetSysId = view.softwareSystemId;
-      const targetSys = ws.model.softwareSystems.find((s) => s.id === targetSysId);
+      const targetSys = findElement(view.softwareSystemId);
+      const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
       if (targetSys) {
         // Add all containers of targetSys
-        for (const c of targetSys.containers) {
-          visibleElementIds.add(c.id);
+        for (const [cid, elem] of Object.entries(allElements)) {
+          if (elem.type === 'container' && elem.parentId === targetSysId) {
+            visibleElementIds.add(cid);
+          }
         }
         // Add external people and software systems interacting with targetSys or its containers
         for (const rel of ws.model.relationships) {
@@ -343,13 +360,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         }
       }
     } else if (view.viewType === 'component') {
-      const targetContId = view.containerId;
-      const targetCont = allElements[targetContId || ''];
+      const targetCont = findElement(view.containerId);
       if (targetCont) {
+        const actualContId = targetCont.id;
         const parentSysId = targetCont.parentId;
         // Add all components inside targetCont
         for (const [compId, comp] of Object.entries(allElements)) {
-          if (comp.parentId === targetContId) {
+          if (comp.parentId === actualContId) {
             visibleElementIds.add(compId);
           }
         }
@@ -362,11 +379,11 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           const sElem = allElements[rel.sourceId];
           const dElem = allElements[rel.destinationId];
 
-          const sourceIsInside = rel.sourceId === targetContId || sCont === targetContId;
-          const destIsInside = rel.destinationId === targetContId || dCont === targetContId;
+          const sourceIsInside = rel.sourceId === actualContId || sCont === actualContId;
+          const destIsInside = rel.destinationId === actualContId || dCont === actualContId;
 
           if (sourceIsInside && !destIsInside) {
-            if (dCont && dCont !== targetContId && dSys === parentSysId) {
+            if (dCont && dCont !== actualContId && dSys === parentSysId) {
               // Sibling container in same software system
               visibleElementIds.add(dCont);
             } else if (dElem?.type === 'person') {
@@ -376,7 +393,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
               visibleElementIds.add(dSys);
             }
           } else if (destIsInside && !sourceIsInside) {
-            if (sCont && sCont !== targetContId && sSys === parentSysId) {
+            if (sCont && sCont !== actualContId && sSys === parentSysId) {
               // Sibling container in same software system
               visibleElementIds.add(sCont);
             } else if (sElem?.type === 'person') {
@@ -416,10 +433,11 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
   if (view) {
     if (view.viewType === 'container' && view.softwareSystemId) {
-      const targetSys = ws.model.softwareSystems.find((s) => s.id === view.softwareSystemId);
+      const targetSys = findElement(view.softwareSystemId);
       if (targetSys) {
-        const childIds = targetSys.containers
-          .map((c) => c.id)
+        const childIds = Object.values(allElements)
+          .filter((e: any) => e.type === 'container' && e.parentId === targetSys.id)
+          .map((c: any) => c.id)
           .filter((id) => visibleElementIds.has(id));
         if (childIds.length > 0) {
           boundaries.push({
@@ -434,10 +452,11 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         }
       }
     } else if (view.viewType === 'component' && view.containerId) {
-      const targetCont = allElements[view.containerId];
+      const targetCont = findElement(view.containerId);
       if (targetCont) {
+        const actualContId = targetCont.id;
         const parentSysId = targetCont.parentId;
-        const targetSys = parentSysId ? ws.model.softwareSystems.find((s) => s.id === parentSysId) : null;
+        const targetSys = parentSysId ? allElements[parentSysId] : null;
 
         // Outer boundary: Software System
         if (targetSys) {
@@ -459,7 +478,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
         // Inner boundary: Container
         const compChildIds = Object.keys(allElements).filter(
-          (id) => allElements[id]?.parentId === view.containerId && visibleElementIds.has(id)
+          (id) => allElements[id]?.parentId === actualContId && visibleElementIds.has(id)
         );
         if (compChildIds.length > 0) {
           boundaries.push({
@@ -645,7 +664,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       key: v.key,
       type: v.viewType,
       title: v.title,
-      description: v.description
+      description: v.description,
+      softwareSystemId: v.softwareSystemId,
+      containerId: v.containerId
     }))
   };
 }

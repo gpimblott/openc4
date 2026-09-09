@@ -30,6 +30,9 @@ import {
   ChevronDown,
   History,
   Plus,
+  Cpu,
+  Home,
+  ChevronRight,
 } from 'lucide-react';
 
 import C4Node from './components/C4Node';
@@ -42,6 +45,7 @@ import { VisualDiffModal } from './components/VisualDiffModal';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import type { InspectionFinding } from './components/InspectionDrawer';
 import { ExportModal } from './components/ExportModal';
+import { McpValidationModal } from './components/McpValidationModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { PublishVersionModal } from './components/PublishVersionModal';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
@@ -88,6 +92,8 @@ interface ViewOption {
   type: string;
   title: string;
   description: string;
+  softwareSystemId?: string;
+  containerId?: string;
 }
 
 export function App() {
@@ -135,8 +141,10 @@ export function App() {
   const [isDiffOpen, setIsDiffOpen] = useState(false);
   const [isInspectionOpen, setIsInspectionOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const editorRef = useRef<any>(null);
 
   // Version management states
   const [versions, setVersions] = useState<Array<{ id: number; version: string; publishedAt: string; commitMessage: string }>>([]);
@@ -342,6 +350,19 @@ export function App() {
 
     // 4. Set dslCode to target file content
     setDslCode(updatedFiles[filePath] ?? '');
+  };
+
+  const handleJumpToError = (file: string, line: number, column: number) => {
+    if (file && file !== activeFileRef.current) {
+      handleSelectFile(file);
+    }
+    setTimeout(() => {
+      if (editorRef.current) {
+        editorRef.current.revealLineInCenter(line);
+        editorRef.current.setPosition({ lineNumber: line, column: column || 1 });
+        editorRef.current.focus();
+      }
+    }, 100);
   };
 
   const handleCloseTab = (tab: string, e: React.MouseEvent) => {
@@ -736,12 +757,17 @@ export function App() {
   };
 
   // Switch View (compiles current in-editor DSL for the target view)
-  const handleViewChange = (viewKey: string) => {
+  const handleViewChange = useCallback((viewKey: string) => {
     setCurrentViewKey(viewKey);
     authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dsl: dslCode, viewKey }),
+      body: JSON.stringify({
+        files: filesRef.current,
+        entryPoint,
+        viewKey,
+        dsl: dslCode,
+      }),
     })
       .then((res) => res.json())
       .then((resData) => {
@@ -754,7 +780,24 @@ export function App() {
         }
       })
       .catch((err) => console.error('Failed to switch view', err));
-  };
+  }, [applyCanvasData, authFetch, currentWorkspaceId, dslCode, entryPoint]);
+
+  // Helper to find the top-level view (System Landscape or System Context)
+  const getHomeView = useCallback(() => {
+    if (availableViews.length === 0) return null;
+    const landscape = availableViews.find((v) => v.type.toLowerCase().includes('landscape'));
+    if (landscape) return landscape;
+    const context = availableViews.find((v) => v.type.toLowerCase().includes('context'));
+    if (context) return context;
+    return availableViews[0];
+  }, [availableViews]);
+
+  const handleGoHome = useCallback(() => {
+    const home = getHomeView();
+    if (home) {
+      handleViewChange(home.key);
+    }
+  }, [getHomeView, handleViewChange]);
 
   // Request deletion with confirmation dialog
   const requestDelete = useCallback((nodesToDelete: Node[], edgesToDelete: Edge[]) => {
@@ -835,16 +878,44 @@ export function App() {
   const onNodeDoubleClick = (_: React.MouseEvent, node: Node) => {
     if (node.type === 'c4Boundary') return;
     const nodeData = node.data as any;
+
     if (nodeData.type === 'softwareSystem') {
-      const containerView = availableViews.find((v) => v.type === 'container');
+      // Find matching container view for this specific software system
+      const containerView =
+        availableViews.find(
+          (v) =>
+            v.type.toLowerCase().includes('container') &&
+            (v.softwareSystemId === node.id ||
+              v.softwareSystemId === nodeData.identifier ||
+              v.softwareSystemId === nodeData.name)
+        ) || availableViews.find((v) => v.type.toLowerCase().includes('container'));
+
       if (containerView) {
         handleViewChange(containerView.key);
+      } else {
+        setToast({ type: 'info', message: `No container diagram defined for system "${nodeData.name}"` });
       }
     } else if (nodeData.type === 'container') {
-      const compView = availableViews.find((v) => v.type === 'component');
+      // Find matching component view for this specific container
+      const compView =
+        availableViews.find(
+          (v) =>
+            v.type.toLowerCase().includes('component') &&
+            (v.containerId === node.id ||
+              v.containerId === nodeData.identifier ||
+              v.containerId === nodeData.name)
+        ) || availableViews.find((v) => v.type.toLowerCase().includes('component'));
+
       if (compView) {
         handleViewChange(compView.key);
+      } else {
+        setToast({ type: 'info', message: `No component diagram defined for container "${nodeData.name}"` });
       }
+    } else if (nodeData.type === 'component') {
+      setToast({
+        type: 'info',
+        message: `"${nodeData.name}" is a component (lowest C4 level). Use the Home button to return to top-level view.`
+      });
     }
   };
 
@@ -1269,8 +1340,24 @@ export function App() {
           )}
         </div>
 
-        {/* Center: View Switcher Dropdown (compact & scalable) */}
+        {/* Center: View Switcher Dropdown & Home Button */}
         <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800 shrink-0 min-w-0">
+          <button
+            type="button"
+            onClick={handleGoHome}
+            title="Return to Workspace Home (Top-Level Context)"
+            className={`p-1 rounded-lg transition flex items-center gap-1 text-xs font-semibold cursor-pointer ${
+              currentViewKey === getHomeView()?.key
+                ? 'text-cyan-400 bg-cyan-950/50 border border-cyan-800/40'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Home className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Home</span>
+          </button>
+
+          <div className="h-3.5 w-px bg-slate-800 shrink-0" />
+
           <Eye className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           <span className="text-xs font-semibold text-slate-400 shrink-0 hidden lg:inline">View:</span>
           <select
@@ -1288,6 +1375,16 @@ export function App() {
 
         {/* Right: Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* MCP Validate */}
+          <button
+            onClick={() => setIsMcpModalOpen(true)}
+            title="Validate DSL with Local Structurizr MCP Server"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 hover:bg-slate-700 hover:border-cyan-500/50 transition cursor-pointer"
+          >
+            <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="hidden lg:inline">MCP Validate</span>
+          </button>
+
           {/* Inspection findings button */}
           <button
             onClick={() => setIsInspectionOpen(true)}
@@ -1556,6 +1653,9 @@ export function App() {
                   value={dslCode}
                   onChange={handleEditorChange}
                   beforeMount={registerStructurizrDsl}
+                  onMount={(editor) => {
+                    editorRef.current = editor;
+                  }}
                   options={{
                     readOnly: !canEdit,
                     fontSize: 13,
@@ -1593,11 +1693,25 @@ export function App() {
                     </span>
                     <span className="truncate">{parseError.message}</span>
                   </div>
-                  {parseError.file && parseError.file !== activeFile && (
-                    <span className="shrink-0 text-xs bg-rose-900/70 hover:bg-rose-800 text-rose-200 px-2 py-0.5 rounded border border-rose-700 font-medium">
-                      Jump to {parseError.file}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsMcpModalOpen(true);
+                      }}
+                      title="Validate with Local Structurizr MCP Server"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 border border-rose-700/60 text-[11px] font-medium transition cursor-pointer"
+                    >
+                      <Cpu className="w-3 h-3 text-cyan-400" />
+                      <span>MCP Validate</span>
+                    </button>
+                    {parseError.file && parseError.file !== activeFile && (
+                      <span className="shrink-0 text-xs bg-rose-900/70 hover:bg-rose-800 text-rose-200 px-2 py-0.5 rounded border border-rose-700 font-medium">
+                        Jump to {parseError.file}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1645,21 +1759,69 @@ export function App() {
 
         {/* Right Pane: Interactive React Flow Canvas */}
         <div className="flex-1 flex flex-col relative bg-[#0b1120] min-w-[240px] overflow-hidden">
-          {/* View Toolbar */}
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl">
-            <span className="text-xs font-semibold px-2 text-slate-300">
-              {currentViewKey}
-            </span>
-            <div className="h-3.5 w-px bg-slate-700" />
+          {/* View Toolbar & Breadcrumb Navigation */}
+          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl max-w-[calc(100%-24px)] overflow-x-auto">
+            {/* Home button */}
+            <button
+              onClick={handleGoHome}
+              title="Return to Workspace Home (Top-Level Context)"
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg transition font-semibold cursor-pointer shrink-0 ${
+                currentViewKey === getHomeView()?.key
+                  ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-700/60'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700'
+              }`}
+            >
+              <Home className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Home</span>
+            </button>
+
+            {/* Breadcrumb Trail when drilled into a child view */}
+            {currentViewKey !== getHomeView()?.key && (
+              <>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                {availableViews.find((v) => v.key === currentViewKey)?.type === 'component' && (
+                  <>
+                    {(() => {
+                      const currV = availableViews.find((v) => v.key === currentViewKey);
+                      const contV = availableViews.find(
+                        (v) =>
+                          v.type === 'container' &&
+                          (!v.softwareSystemId || v.softwareSystemId === currV?.softwareSystemId)
+                      );
+                      if (contV) {
+                        return (
+                          <>
+                            <button
+                              onClick={() => handleViewChange(contV.key)}
+                              className="text-xs font-semibold px-2 py-0.5 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition truncate max-w-[140px] cursor-pointer shrink-0"
+                              title={`Go to Container View: ${contV.title}`}
+                            >
+                              {contV.title}
+                            </button>
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                          </>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </>
+                )}
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-cyan-950/40 text-cyan-300 border border-cyan-800/40 truncate max-w-[180px] shrink-0">
+                  {currentViewKey}
+                </span>
+              </>
+            )}
+
+            <div className="h-3.5 w-px bg-slate-700 shrink-0" />
             <button
               onClick={() => handleAutoLayout('TB')}
-              className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition font-medium"
+              className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition font-medium shrink-0 cursor-pointer"
             >
               Auto-Layout (TB)
             </button>
             <button
               onClick={() => handleAutoLayout('LR')}
-              className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition font-medium"
+              className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition font-medium shrink-0 cursor-pointer"
             >
               Auto-Layout (LR)
             </button>
@@ -1723,7 +1885,7 @@ export function App() {
               position="bottom-center"
               className="text-[11px] text-slate-400 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 shadow-lg"
             >
-              Tip: Double-click a Software System or Container to drill down
+              Tip: Double-click a System or Container to drill down • Click &apos;Home&apos; to return to top-level view
             </Panel>
           </ReactFlow>
         </div>
@@ -1764,6 +1926,17 @@ export function App() {
         onClose={() => setIsExportOpen(false)}
         workspaceId={currentWorkspaceId}
         currentViewKey={currentViewKey}
+      />
+
+      <McpValidationModal
+        isOpen={isMcpModalOpen}
+        onClose={() => setIsMcpModalOpen(false)}
+        dslCode={dslCode}
+        files={files}
+        entryPoint={entryPoint}
+        activeFile={activeFile}
+        onApplyError={(err) => setParseError(err)}
+        onJumpToError={handleJumpToError}
       />
 
       <PublishVersionModal

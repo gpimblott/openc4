@@ -349,4 +349,134 @@ describe('API Endpoints', () => {
     const deletedFolderData = await deleteFolderRes.json();
     expect(deletedFolderData.folders).not.toContain('components/security');
   });
+
+  it('tests connection to local MCP server via /api/mcp/test-connection', async () => {
+    const res = await app.request('/api/mcp/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'http://localhost:8000/mcp' })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.connected).toBe(true);
+    expect(data.validationTool).toBe('validate_dsl');
+    expect(data.tools.some((t: any) => t.name === 'validate_dsl')).toBe(true);
+  });
+
+  it('validates valid DSL using local MCP server via /api/mcp/validate', async () => {
+    const res = await app.request('/api/mcp/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000/mcp',
+        dsl: DEFAULT_SAMPLE_DSL
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.valid).toBe(true);
+    expect(data.workspaceName).toBe('Big Bank plc');
+    expect(data.elementCount).toBeGreaterThan(0);
+    expect(data.relationshipCount).toBeGreaterThan(0);
+  });
+
+  it('returns parse errors when validating invalid DSL via /api/mcp/validate', async () => {
+    const invalidDsl = `workspace "Bad Model" {
+      model {
+        broken = softwareSystem "Unterminated
+      }
+    }`;
+    const res = await app.request('/api/mcp/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000/mcp',
+        dsl: invalidDsl
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.valid).toBe(false);
+    expect(data.error).toBeDefined();
+    expect(data.error.message).toBeDefined();
+  });
+
+  it('supports multi-file resolution and maps error line numbers in /api/mcp/validate', async () => {
+    const files = {
+      'workspace.dsl': `workspace "Multi" {
+  model {
+    !include systems.dsl
+  }
+}`,
+      'systems.dsl': `// line 1
+system = softwareSystem "Valid System" {
+  // syntax error on line 4
+  invalid = "unterminated string
+}`
+    };
+
+    const res = await app.request('/api/mcp/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000/mcp',
+        files,
+        entryPoint: 'workspace.dsl'
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.valid).toBe(false);
+    expect(data.error).toBeDefined();
+    // Verify mapped error points to systems.dsl
+    expect(data.error.file).toBe('systems.dsl');
+    expect(data.error.line).toBe(4);
+  });
+
+  it('compiles component view in multi-file workspace and preserves nested components and view metadata', async () => {
+    const files = {
+      'workspace.dsl': `workspace "OpenC4" {
+  model {
+    openC4 = softwareSystem "OpenC4" {
+      !include backend.dsl
+    }
+  }
+  views {
+    systemContext openC4 "SystemContext" {
+      include *
+    }
+    component backendServer "BackendComponents" {
+      include *
+    }
+  }
+}`,
+      'backend.dsl': `backendServer = container "Backend Server" {
+  mcp = component "MCP Controller" "Handles MCP"
+  api = component "API Controller" "Handles REST"
+}`
+    };
+
+    const res = await app.request('/api/workspaces/1/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files,
+        entryPoint: 'workspace.dsl',
+        viewKey: 'BackendComponents'
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.canvas).toBeDefined();
+    expect(data.canvas.nodes.length).toBe(2);
+    expect(data.canvas.nodes.some((n: any) => n.data.name === 'MCP Controller')).toBe(true);
+    expect(data.canvas.nodes.some((n: any) => n.data.name === 'API Controller')).toBe(true);
+    expect(data.canvas.availableViews).toBeDefined();
+    expect(data.canvas.availableViews.some((v: any) => v.key === 'BackendComponents')).toBe(true);
+    expect(data.findings.some((f: any) => f.message.includes('disconnected'))).toBe(false);
+  });
 });
+

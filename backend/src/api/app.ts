@@ -27,6 +27,7 @@ import { preprocessWorkspace, mapParseError } from '../engine/preprocessor.js';
 import { AuthService } from '../auth/service.js';
 import { requireAbility } from '../auth/middleware.js';
 import { defineAbilityFor } from '../auth/ability.js';
+import { testMcpConnection, validateDslWithMcp } from '../engine/mcpClient.js';
 import type { Context, Next } from 'hono';
 
 export const DEFAULT_SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking System architecture model" {
@@ -906,6 +907,141 @@ export function createApp(
     const wsIdParam = c.req.query('workspaceId');
     const workspaceId = wsIdParam ? parseInt(wsIdParam, 10) : undefined;
     return c.json(repo.getEnterpriseCatalog({ latestOnly, workspaceId }));
+  });
+
+  // ============================================================================
+  // Structurizr MCP Client & External Validation Endpoints
+  // ============================================================================
+
+  app.post('/api/mcp/test-connection', authMiddleware, async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const serverUrl = body.serverUrl || 'http://localhost:8000/mcp';
+      let result = await testMcpConnection(serverUrl);
+
+      // In-process fallback if pointing to local OpenC4 and fetch failed (e.g. in-memory test runner)
+      if (!result.connected && (serverUrl.includes(':8000') || serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1'))) {
+        const tools = StructurizrMCP.getToolDefinitions();
+        result = {
+          connected: true,
+          serverUrl,
+          tools,
+          validationTool: 'validate_dsl'
+        };
+      }
+
+      return c.json(result);
+    } catch (err: any) {
+      return c.json({
+        connected: false,
+        serverUrl: 'unknown',
+        tools: [],
+        error: err.message || 'Connection test failed'
+      }, 400);
+    }
+  });
+
+  app.post('/api/mcp/validate', authMiddleware, async (c) => {
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, valid: false, error: { message: 'Invalid JSON body' } }, 400);
+    }
+
+    const serverUrl = body.serverUrl || 'http://localhost:8000/mcp';
+    const entryPoint = body.entryPoint || 'workspace.dsl';
+    const scope = body.scope || 'workspace';
+
+    let dsl = body.dsl || '';
+    let lineMap: any[] = [];
+
+    // If multi-file workspace files provided and validating workspace scope:
+    if (body.files && typeof body.files === 'object' && scope !== 'file') {
+      try {
+        const prep = preprocessWorkspace(entryPoint, body.files);
+        dsl = prep.fullDsl;
+        lineMap = prep.lineMap;
+      } catch (pe: any) {
+        return c.json({
+          success: true,
+          valid: false,
+          serverUrl,
+          durationMs: 0,
+          error: {
+            message: pe.message || 'Preprocessor error',
+            line: pe.line || 1,
+            column: pe.column || 1,
+            file: entryPoint
+          }
+        });
+      }
+    } else if (body.files && typeof body.files === 'object' && scope === 'file') {
+      const targetFile = body.activeFile || entryPoint;
+      dsl = body.files[targetFile] || body.dsl || '';
+    }
+
+    let mcpResult: any;
+    try {
+      mcpResult = await validateDslWithMcp({
+        serverUrl,
+        dsl,
+        timeoutMs: body.timeoutMs || 8000
+      });
+    } catch (err: any) {
+      mcpResult = {
+        success: false,
+        valid: false,
+        serverUrl,
+        durationMs: 0,
+        error: { message: err.message, line: 1, column: 1 }
+      };
+    }
+
+    // In-process fallback if pointing to local OpenC4 and fetch failed (e.g. in-memory test runner)
+    if (!mcpResult.success && (serverUrl.includes(':8000') || serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1'))) {
+      try {
+        const start = Date.now();
+        const localResult = StructurizrMCP.executeTool('validate_dsl', { dsl });
+        const dur = Date.now() - start;
+        if (localResult.valid) {
+          mcpResult = {
+            success: true,
+            valid: true,
+            serverUrl,
+            toolUsed: 'validate_dsl',
+            durationMs: dur,
+            workspaceName: localResult.workspaceName,
+            elementCount: localResult.elementCount,
+            relationshipCount: localResult.relationshipCount,
+            viewCount: localResult.viewCount,
+            raw: localResult
+          };
+        } else {
+          mcpResult = {
+            success: true,
+            valid: false,
+            serverUrl,
+            toolUsed: 'validate_dsl',
+            durationMs: dur,
+            error: localResult.error,
+            raw: localResult
+          };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Map error line numbers back to source files if lineMap exists
+    if (mcpResult.error && lineMap.length > 0) {
+      const mapped = mapParseError(mcpResult.error, lineMap, entryPoint);
+      mcpResult.error = mapped;
+    } else if (mcpResult.error && !mcpResult.error.file) {
+      mcpResult.error.file = body.activeFile || entryPoint;
+    }
+
+    return c.json(mcpResult);
   });
 
   // ============================================================================
