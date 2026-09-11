@@ -53,6 +53,7 @@ export interface BaseElement {
   properties: Record<string, string>;
   url?: string | null;
   lineRange?: { startLine: number; endLine: number };
+  group?: string | null;
 }
 
 export interface Person extends BaseElement {

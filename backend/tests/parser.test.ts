@@ -299,4 +299,90 @@ describe('DSL Parser', () => {
     expect(canvas.edges[0].style.strokeWidth).toBe(4);
     expect(canvas.edges[1].style.strokeWidth).toBe(4);
   });
+
+  it('parses group blocks in model, systems, and containers without truncating views', () => {
+    const dslWithGroups = `
+    workspace "Group Test" "Testing group blocks" {
+        !identifiers hierarchical
+
+        model {
+            user = person "User" "A user"
+
+            group "External SaaS" {
+                extSystem = softwareSystem "External Service" "Third party service"
+            }
+
+            group "Core Platform" {
+                coreSystem = softwareSystem "Core System" "Main system" {
+                    group "Data Tier" {
+                        db = container "Database" "PostgreSQL" "PostgreSQL"
+                    }
+                    group "API Tier" {
+                        api = container "Backend API" "NodeJS" "NodeJS" {
+                            group "Services" {
+                                authService = component "Auth Service" "Handles auth" "TypeScript"
+                            }
+                        }
+                    }
+                }
+            }
+
+            user -> coreSystem "Uses"
+            user -> coreSystem.api "Uses API"
+            coreSystem.api.authService -> coreSystem.db "Queries"
+            coreSystem -> extSystem "Integrates with"
+        }
+
+        views {
+            systemContext coreSystem "SystemContext" {
+                include *
+                autoLayout lr
+            }
+            container coreSystem "CoreContainers" {
+                include *
+            }
+            component coreSystem.api "ApiComponents" {
+                include *
+            }
+        }
+    }
+    `;
+
+    const ws = parseDsl(dslWithGroups);
+
+    // Verify elements and their groups
+    const extSys = ws.model.softwareSystems.find((s) => s.name === 'External Service');
+    expect(extSys).toBeDefined();
+    expect(extSys!.group).toBe('External SaaS');
+
+    const coreSys = ws.model.softwareSystems.find((s) => s.name === 'Core System');
+    expect(coreSys).toBeDefined();
+    expect(coreSys!.group).toBe('Core Platform');
+
+    const db = coreSys!.containers.find((c) => c.name === 'Database');
+    expect(db).toBeDefined();
+    expect(db!.group).toBe('Core Platform/Data Tier');
+
+    const api = coreSys!.containers.find((c) => c.name === 'Backend API');
+    expect(api).toBeDefined();
+    expect(api!.group).toBe('Core Platform/API Tier');
+
+    const authComp = api!.components.find((c) => c.name === 'Auth Service');
+    expect(authComp).toBeDefined();
+    expect(authComp!.group).toBe('Core Platform/API Tier/Services');
+
+    // Verify relationships were not truncated
+    expect(ws.model.relationships.length).toBe(4);
+
+    // Verify views were not truncated
+    expect(ws.views.length).toBe(3);
+    expect(ws.views.map((v) => v.key)).toEqual(['SystemContext', 'CoreContainers', 'ApiComponents']);
+
+    // Verify canvas compilation for views
+    const canvas = compileViewToCanvas(ws, 'SystemContext');
+    expect(canvas.availableViews.length).toBe(3);
+    expect(canvas.availableViews.map((v: any) => v.key)).toEqual(['SystemContext', 'CoreContainers', 'ApiComponents']);
+    expect(canvas.nodes.length).toBeGreaterThan(0);
+    expect(canvas.edges.length).toBeGreaterThan(0);
+  });
 });

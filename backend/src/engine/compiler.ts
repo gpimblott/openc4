@@ -42,6 +42,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     if (p.url) {
       pData.url = p.url;
     }
+    if (p.group) {
+      pData.group = p.group;
+    }
     peopleJson.push(pData);
   }
 
@@ -62,6 +65,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
         if (relsBySource[comp.id]) {
           compData.relationships = relsBySource[comp.id];
         }
+        if (comp.group) {
+          compData.group = comp.group;
+        }
         componentsJson.push(compData);
       }
 
@@ -76,6 +82,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       if (relsBySource[c.id]) {
         cData.relationships = relsBySource[c.id];
       }
+      if (c.group) {
+        cData.group = c.group;
+      }
       containersJson.push(cData);
     }
 
@@ -87,6 +96,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       tags: s.tags.length > 0 ? s.tags.join(',') : 'Element,Software System',
       containers: containersJson
     };
+    if (s.group) {
+      sData.group = s.group;
+    }
     if (relsBySource[s.id]) {
       sData.relationships = relsBySource[s.id];
     }
@@ -214,7 +226,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       description: p.description,
       technology: '',
       tags: p.tags,
-      parentId: null
+      parentId: null,
+      group: p.group || null
     };
   }
 
@@ -227,7 +240,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       description: s.description,
       technology: '',
       tags: s.tags,
-      parentId: null
+      parentId: null,
+      group: s.group || null
     };
     for (const c of s.containers) {
       allElements[c.id] = {
@@ -238,7 +252,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         description: c.description,
         technology: c.technology,
         tags: c.tags,
-        parentId: s.id
+        parentId: s.id,
+        group: c.group || null
       };
       parentMap[c.id] = s.id;
       for (const comp of c.components) {
@@ -250,7 +265,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           description: comp.description,
           technology: comp.technology,
           tags: comp.tags,
-          parentId: c.id
+          parentId: c.id,
+          group: comp.group || null
         };
         parentMap[comp.id] = c.id;
       }
@@ -513,7 +529,60 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     }
   }
 
-  const boundary = boundaries.length > 0 ? boundaries[boundaries.length - 1] : null;
+  // Group boundaries for elements with group defined
+  const groupMap = new Map<
+    string,
+    { name: string; parentBoundaryId: string | null; childIds: string[] }
+  >();
+
+  for (const eid of visibleElementIds) {
+    const elem = allElements[eid];
+    if (elem && elem.group) {
+      let parentBoundaryId: string | null = null;
+      if (elem.type === 'component') {
+        if (boundaries.some((b) => b.id === elem.parentId)) {
+          parentBoundaryId = elem.parentId;
+        } else {
+          const cont = allElements[elem.parentId];
+          if (cont && boundaries.some((b) => b.id === cont.parentId)) {
+            parentBoundaryId = cont.parentId;
+          }
+        }
+      } else if (elem.type === 'container') {
+        if (boundaries.some((b) => b.id === elem.parentId)) {
+          parentBoundaryId = elem.parentId;
+        }
+      }
+
+      const groupKey = `${parentBoundaryId || 'root'}:::${elem.group}`;
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, {
+          name: elem.group,
+          parentBoundaryId,
+          childIds: []
+        });
+      }
+      groupMap.get(groupKey)!.childIds.push(eid);
+    }
+  }
+
+  for (const [key, grp] of groupMap.entries()) {
+    if (grp.childIds.length > 0) {
+      const safeId = `group_${grp.parentBoundaryId || 'model'}_${grp.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      boundaries.push({
+        id: safeId,
+        name: grp.name,
+        type: 'group',
+        childIds: grp.childIds,
+        parentBoundaryId: grp.parentBoundaryId,
+        stroke: bStroke,
+        strokeWidth: bStrokeWidth
+      });
+    }
+  }
+
+  const primaryBoundary = boundaries.slice().reverse().find((b) => b.type !== 'group') || boundaries[0] || null;
+  const boundary = primaryBoundary;
 
   // Generate React Flow nodes
   const nodes: any[] = [];
@@ -589,7 +658,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         color: textColor,
         shape,
         stroke,
-        strokeWidth
+        strokeWidth,
+        group: elem.group || null
       }
     });
   }
@@ -719,50 +789,39 @@ export function exportToMermaid(ws: Workspace, viewKey?: string | null): string 
 
   const renderedNodeIds = new Set<string>();
 
-  if (boundaries.length === 2 && boundaries[1].parentBoundaryId === boundaries[0].id) {
-    const sysB = boundaries[0];
-    const contB = boundaries[1];
-    const contChildSet = new Set(contB.childIds);
-
-    lines.push(`    subgraph boundary_${sysB.id} ["<b>${sysB.name}</b><br/>[${sysB.type.toUpperCase()}]"]`);
-
-    // Nested container subgraph
-    const tech = contB.technology ? ` [${contB.technology}]` : '';
-    lines.push(`        subgraph boundary_${contB.id} ["<b>${contB.name}</b><br/>[${contB.type.toUpperCase()}${tech}]"]`);
-    for (const cid of contB.childIds) {
-      const node = nodeMap.get(cid);
-      if (node) {
-        lines.push(renderNode(node, '            '));
-        renderedNodeIds.add(cid);
-      }
+  const boundaryMap = new Map<string, any>(boundaries.map((b: any) => [b.id, b]));
+  const childBoundariesMap = new Map<string, any[]>();
+  for (const b of boundaries) {
+    if (b.parentBoundaryId && boundaryMap.has(b.parentBoundaryId)) {
+      if (!childBoundariesMap.has(b.parentBoundaryId)) childBoundariesMap.set(b.parentBoundaryId, []);
+      childBoundariesMap.get(b.parentBoundaryId)!.push(b);
     }
-    lines.push('        end');
+  }
 
-    // Sibling elements inside system but outside container
-    for (const cid of sysB.childIds) {
-      if (!contChildSet.has(cid)) {
+  const renderBoundaryMermaid = (b: any, indent: string) => {
+    const tech = b.technology ? ` [${b.technology}]` : '';
+    lines.push(`${indent}subgraph boundary_${b.id} ["<b>${b.name}</b><br/>[${b.type.toUpperCase()}${tech}]"]`);
+
+    const nested = childBoundariesMap.get(b.id) || [];
+    for (const nb of nested) {
+      renderBoundaryMermaid(nb, indent + '    ');
+    }
+
+    for (const cid of b.childIds) {
+      if (!renderedNodeIds.has(cid)) {
         const node = nodeMap.get(cid);
         if (node) {
-          lines.push(renderNode(node, '        '));
+          lines.push(renderNode(node, indent + '    '));
           renderedNodeIds.add(cid);
         }
       }
     }
+    lines.push(`${indent}end`);
+  };
 
-    lines.push('    end');
-  } else {
-    for (const b of boundaries) {
-      const tech = b.technology ? ` [${b.technology}]` : '';
-      lines.push(`    subgraph boundary_${b.id} ["<b>${b.name}</b><br/>[${b.type.toUpperCase()}${tech}]"]`);
-      for (const cid of b.childIds) {
-        const node = nodeMap.get(cid);
-        if (node && !renderedNodeIds.has(cid)) {
-          lines.push(renderNode(node, '        '));
-          renderedNodeIds.add(cid);
-        }
-      }
-      lines.push('    end');
-    }
+  const rootBoundaries = boundaries.filter((b: any) => !b.parentBoundaryId || !boundaryMap.has(b.parentBoundaryId));
+  for (const rb of rootBoundaries) {
+    renderBoundaryMermaid(rb, '    ');
   }
 
   for (const node of canvasData.nodes) {
@@ -818,45 +877,39 @@ export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string
 
   const renderedNodeIds = new Set<string>();
 
-  if (boundaries.length === 2 && boundaries[1].parentBoundaryId === boundaries[0].id) {
-    const sysB = boundaries[0];
-    const contB = boundaries[1];
-    const contChildSet = new Set(contB.childIds);
-
-    lines.push(`System_Boundary(b_${sysB.id}, "${sysB.name}") {`);
-    lines.push(`  Container_Boundary(b_${contB.id}, "${contB.name}") {`);
-    for (const cid of contB.childIds) {
-      const node = nodeMap.get(cid);
-      if (node) {
-        lines.push(renderNode(node, '    '));
-        renderedNodeIds.add(cid);
-      }
+  const pumlBoundaryMap = new Map<string, any>(boundaries.map((b: any) => [b.id, b]));
+  const pumlChildBoundariesMap = new Map<string, any[]>();
+  for (const b of boundaries) {
+    if (b.parentBoundaryId && pumlBoundaryMap.has(b.parentBoundaryId)) {
+      if (!pumlChildBoundariesMap.has(b.parentBoundaryId)) pumlChildBoundariesMap.set(b.parentBoundaryId, []);
+      pumlChildBoundariesMap.get(b.parentBoundaryId)!.push(b);
     }
-    lines.push('  }');
+  }
 
-    for (const cid of sysB.childIds) {
-      if (!contChildSet.has(cid)) {
+  const renderBoundaryPlantUML = (b: any, indent: string) => {
+    const macro = b.type === 'container' ? 'Container_Boundary' : b.type === 'group' ? 'Boundary' : 'System_Boundary';
+    lines.push(`${indent}${macro}(b_${b.id}, "${b.name}") {`);
+
+    const nested = pumlChildBoundariesMap.get(b.id) || [];
+    for (const nb of nested) {
+      renderBoundaryPlantUML(nb, indent + '  ');
+    }
+
+    for (const cid of b.childIds) {
+      if (!renderedNodeIds.has(cid)) {
         const node = nodeMap.get(cid);
         if (node) {
-          lines.push(renderNode(node, '  '));
+          lines.push(renderNode(node, indent + '  '));
           renderedNodeIds.add(cid);
         }
       }
     }
-    lines.push('}');
-  } else {
-    for (const b of boundaries) {
-      const macro = b.type === 'container' ? 'Container_Boundary' : 'System_Boundary';
-      lines.push(`${macro}(b_${b.id}, "${b.name}") {`);
-      for (const cid of b.childIds) {
-        const node = nodeMap.get(cid);
-        if (node && !renderedNodeIds.has(cid)) {
-          lines.push(renderNode(node, '  '));
-          renderedNodeIds.add(cid);
-        }
-      }
-      lines.push('}');
-    }
+    lines.push(`${indent}}`);
+  };
+
+  const pumlRootBoundaries = boundaries.filter((b: any) => !b.parentBoundaryId || !pumlBoundaryMap.has(b.parentBoundaryId));
+  for (const rb of pumlRootBoundaries) {
+    renderBoundaryPlantUML(rb, '');
   }
 
   for (const node of canvasData.nodes) {

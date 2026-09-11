@@ -118,4 +118,58 @@ describe('C4 View Scoping', () => {
     expect(puml).toContain('Internet Banking System');
     expect(puml).toContain('API Application');
   });
+
+  it('generates graphical boundaries for groups in canvas, Mermaid, and PlantUML', () => {
+    const groupDsl = `
+    workspace "Monitoring" {
+        !identifiers hierarchical
+        model {
+            monitorApp = softwareSystem "Monitoring Application" {
+                c4 = container "Log visualization" "UI" "React"
+                group "Monitoring backend" {
+                    c3 = container "Log connector" "Collector" "Go"
+                    c5 = container "Data Cache" "Cache" "Redis"
+                }
+            }
+        }
+        views {
+            container monitorApp "Containers" {
+                include *
+            }
+        }
+    }
+    `;
+
+    const gWs = parseDsl(groupDsl);
+    const canvas = compileViewToCanvas(gWs, 'Containers');
+
+    // Should have 2 boundaries: System boundary and nested Group boundary
+    expect(canvas.boundaries).toHaveLength(2);
+
+    const sysB = canvas.boundaries.find((b: any) => b.type === 'softwareSystem');
+    expect(sysB).toBeDefined();
+    expect(sysB.name).toBe('Monitoring Application');
+
+    const grpB = canvas.boundaries.find((b: any) => b.type === 'group');
+    expect(grpB).toBeDefined();
+    expect(grpB.name).toBe('Monitoring backend');
+    expect(grpB.parentBoundaryId).toBe(sysB.id);
+    expect(grpB.childIds).toHaveLength(2);
+
+    // Primary boundary still points to software system
+    expect(canvas.boundary).not.toBeNull();
+    expect(canvas.boundary.type).toBe('softwareSystem');
+
+    // Mermaid exports nested group subgraph
+    const mmd = exportToMermaid(gWs, 'Containers');
+    expect(mmd).toContain('subgraph boundary_');
+    expect(mmd).toContain('[GROUP]');
+    expect(mmd).toContain('Monitoring backend');
+
+    // PlantUML exports Boundary macro for group
+    const puml = exportToPlantUML(gWs, 'Containers');
+    expect(puml).toContain('System_Boundary');
+    expect(puml).toContain('Boundary');
+    expect(puml).toContain('Monitoring backend');
+  });
 });

@@ -237,6 +237,7 @@ export class Parser {
   identifierToId: Map<string, string> = new Map();
   idToElement: Map<string, any> = new Map();
   identifiersMode: 'flat' | 'hierarchical' = 'flat';
+  private currentGroup: string | null = null;
 
   constructor(tokens: Token[], sourceText: string = '') {
     this.tokens = tokens;
@@ -441,6 +442,19 @@ export class Parser {
       return;
     }
 
+    if (keyword === 'group') {
+      this.pos += 1;
+      const groupName = this.expectStringOrIdentifier();
+      this.expect('LBRACE');
+      const prevGroup = this.currentGroup;
+      this.currentGroup = prevGroup ? `${prevGroup}/${groupName}` : groupName;
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        this.parseModelBody();
+      }
+      this.currentGroup = prevGroup;
+      return;
+    }
+
     if (keyword === 'person') {
       this.pos += 1;
       this.parsePerson(identifier, startLine);
@@ -479,7 +493,8 @@ export class Parser {
       description: desc,
       location: 'Unspecified',
       tags,
-      properties: {}
+      properties: {},
+      group: this.currentGroup || undefined
     };
 
     this.identifierToId.set(ident, eid);
@@ -529,7 +544,8 @@ export class Parser {
       location: 'Unspecified',
       containers: [],
       tags,
-      properties: {}
+      properties: {},
+      group: this.currentGroup || undefined
     };
 
     this.identifierToId.set(ident, eid);
@@ -539,42 +555,56 @@ export class Parser {
 
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
-        let cIdent: string | null = null;
-        let cStartLine = this.current().line;
-        const curr = this.current();
-        if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
-          cIdent = curr.value;
-          cStartLine = curr.line;
-          this.pos += 2;
-        } else {
-          cStartLine = this.current().line;
-        }
-
-        const nextCurr = this.current();
-        const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
-        if (kw === 'container') {
-          this.pos += 1;
-          this.parseContainer(system, cIdent, cStartLine);
-        } else if (nextCurr.type === 'ARROW') {
-          this.pos += 1;
-          const dest = this.expect('IDENTIFIER').value;
-          this.parseRelationshipDetails(ident, dest, nextCurr.line);
-        } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
-          this.parseRelationship(nextCurr.value, nextCurr.line);
-        } else if (kw === 'tags') {
-          this.pos += 1;
-          system.tags.push(...this.parseStringArgs());
-        } else if (kw === 'url') {
-          this.pos += 1;
-          system.url = this.expectStringOrIdentifier();
-        } else {
-          this.pos += 1;
-        }
+        this.parseSoftwareSystemBody(system, ident);
       }
     }
 
     const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? sLine;
     system.lineRange = { startLine: sLine, endLine };
+  }
+
+  private parseSoftwareSystemBody(system: SoftwareSystem, ident: string) {
+    let cIdent: string | null = null;
+    let cStartLine = this.current().line;
+    const curr = this.current();
+    if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
+      cIdent = curr.value;
+      cStartLine = curr.line;
+      this.pos += 2;
+    } else {
+      cStartLine = this.current().line;
+    }
+
+    const nextCurr = this.current();
+    const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
+    if (kw === 'container') {
+      this.pos += 1;
+      this.parseContainer(system, cIdent, cStartLine);
+    } else if (kw === 'group') {
+      this.pos += 1;
+      const groupName = this.expectStringOrIdentifier();
+      this.expect('LBRACE');
+      const prevGroup = this.currentGroup;
+      this.currentGroup = prevGroup ? `${prevGroup}/${groupName}` : groupName;
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        this.parseSoftwareSystemBody(system, ident);
+      }
+      this.currentGroup = prevGroup;
+    } else if (nextCurr.type === 'ARROW') {
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseRelationshipDetails(ident, dest, nextCurr.line);
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+      this.parseRelationship(nextCurr.value, nextCurr.line);
+    } else if (kw === 'tags') {
+      this.pos += 1;
+      system.tags.push(...this.parseStringArgs());
+    } else if (kw === 'url') {
+      this.pos += 1;
+      system.url = this.expectStringOrIdentifier();
+    } else {
+      this.pos += 1;
+    }
   }
 
   private parseContainer(system: SoftwareSystem, identifier: string | null = null, startLine?: number) {
@@ -601,7 +631,8 @@ export class Parser {
       technology: tech,
       components: [],
       tags,
-      properties: {}
+      properties: {},
+      group: this.currentGroup || undefined
     };
 
     this.identifierToId.set(ident, eid);
@@ -615,42 +646,56 @@ export class Parser {
 
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
-        let compIdent: string | null = null;
-        let compStartLine = this.current().line;
-        const curr = this.current();
-        if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
-          compIdent = curr.value;
-          compStartLine = curr.line;
-          this.pos += 2;
-        } else {
-          compStartLine = this.current().line;
-        }
-
-        const nextCurr = this.current();
-        const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
-        if (kw === 'component') {
-          this.pos += 1;
-          this.parseComponent(container, compIdent, compStartLine);
-        } else if (nextCurr.type === 'ARROW') {
-          this.pos += 1;
-          const dest = this.expect('IDENTIFIER').value;
-          this.parseRelationshipDetails(containerIdent, dest, nextCurr.line);
-        } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
-          this.parseRelationship(nextCurr.value, nextCurr.line);
-        } else if (kw === 'tags') {
-          this.pos += 1;
-          container.tags.push(...this.parseStringArgs());
-        } else if (kw === 'url') {
-          this.pos += 1;
-          container.url = this.expectStringOrIdentifier();
-        } else {
-          this.pos += 1;
-        }
+        this.parseContainerBody(container, containerIdent);
       }
     }
 
     const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? sLine;
     container.lineRange = { startLine: sLine, endLine };
+  }
+
+  private parseContainerBody(container: Container, containerIdent: string) {
+    let compIdent: string | null = null;
+    let compStartLine = this.current().line;
+    const curr = this.current();
+    if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
+      compIdent = curr.value;
+      compStartLine = curr.line;
+      this.pos += 2;
+    } else {
+      compStartLine = this.current().line;
+    }
+
+    const nextCurr = this.current();
+    const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
+    if (kw === 'component') {
+      this.pos += 1;
+      this.parseComponent(container, compIdent, compStartLine);
+    } else if (kw === 'group') {
+      this.pos += 1;
+      const groupName = this.expectStringOrIdentifier();
+      this.expect('LBRACE');
+      const prevGroup = this.currentGroup;
+      this.currentGroup = prevGroup ? `${prevGroup}/${groupName}` : groupName;
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        this.parseContainerBody(container, containerIdent);
+      }
+      this.currentGroup = prevGroup;
+    } else if (nextCurr.type === 'ARROW') {
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseRelationshipDetails(containerIdent, dest, nextCurr.line);
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+      this.parseRelationship(nextCurr.value, nextCurr.line);
+    } else if (kw === 'tags') {
+      this.pos += 1;
+      container.tags.push(...this.parseStringArgs());
+    } else if (kw === 'url') {
+      this.pos += 1;
+      container.url = this.expectStringOrIdentifier();
+    } else {
+      this.pos += 1;
+    }
   }
 
   private parseComponent(container: Container, identifier: string | null = null, startLine?: number) {
@@ -688,7 +733,8 @@ export class Parser {
       description: desc,
       technology: tech,
       tags,
-      properties: {}
+      properties: {},
+      group: this.currentGroup || undefined
     };
 
     this.identifierToId.set(ident, eid);
@@ -728,14 +774,28 @@ export class Parser {
     const envName = this.expectStringOrIdentifier();
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
-        const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
-        if (kw === 'deploymentnode') {
-          this.pos += 1;
-          this.parseDeploymentNode(envName);
-        } else {
-          this.pos += 1;
-        }
+        this.parseDeploymentEnvironmentBody(envName);
       }
+    }
+  }
+
+  private parseDeploymentEnvironmentBody(envName: string) {
+    const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
+    if (kw === 'deploymentnode') {
+      this.pos += 1;
+      this.parseDeploymentNode(envName);
+    } else if (kw === 'group') {
+      this.pos += 1;
+      const groupName = this.expectStringOrIdentifier();
+      this.expect('LBRACE');
+      const prevGroup = this.currentGroup;
+      this.currentGroup = prevGroup ? `${prevGroup}/${groupName}` : groupName;
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        this.parseDeploymentEnvironmentBody(envName);
+      }
+      this.currentGroup = prevGroup;
+    } else {
+      this.pos += 1;
     }
   }
 
@@ -758,7 +818,8 @@ export class Parser {
       children: [],
       containerInstances: [],
       tags: ['Deployment Node', 'Element'],
-      properties: {}
+      properties: {},
+      group: this.currentGroup || undefined
     };
 
     this.identifierToId.set(node.identifier, eid);
