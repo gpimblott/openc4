@@ -26,6 +26,7 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/backend/dist ./dist/
 COPY --from=builder /app/frontend/dist /app/frontend/dist/
+COPY openc4.dsl ./
 
 WORKDIR /app
 EXPOSE 8000

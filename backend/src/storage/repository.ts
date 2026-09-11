@@ -85,6 +85,7 @@ export class WorkspaceRepository {
       fs.mkdirSync(parentDir, { recursive: true });
     }
     this.db = new DatabaseSync(this.dbPath);
+    this.db.exec('PRAGMA busy_timeout = 5000;');
     this.initDb();
   }
 

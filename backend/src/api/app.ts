@@ -104,6 +104,38 @@ export const DEFAULT_SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking Sy
     }
 }`;
 
+export function loadDefaultExampleDsl(): { name: string; description: string; dsl: string } {
+  const candidatePaths = [
+    process.env.DEFAULT_DSL_PATH,
+    path.resolve(process.cwd(), 'openc4.dsl'),
+    path.resolve(process.cwd(), '../openc4.dsl'),
+    path.resolve(__dirname, '../../../openc4.dsl'),
+    path.resolve(__dirname, '../../openc4.dsl')
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      try {
+        const content = fs.readFileSync(candidate, 'utf-8');
+        const parsed = parseDsl(content);
+        return {
+          name: parsed.name || 'OpenC4',
+          description: parsed.description || 'Architecture model of OpenC4 open-source C4 architecture platform',
+          dsl: content
+        };
+      } catch (e) {
+        console.warn(`Failed to parse candidate DSL file at ${candidate}:`, e);
+      }
+    }
+  }
+
+  return {
+    name: 'Big Bank plc',
+    description: 'Internet Banking System architecture model',
+    dsl: DEFAULT_SAMPLE_DSL
+  };
+}
+
 export function createApp(
   repo: WorkspaceRepository = new WorkspaceRepository(),
   authService: AuthService = new AuthService(repo),
@@ -121,9 +153,10 @@ export function createApp(
   function ensureSeedWorkspace() {
     const workspaces = repo.listWorkspaces();
     if (workspaces.length === 0) {
-      const wsInfo = repo.createWorkspace('Big Bank plc', 'Internet Banking System architecture model', DEFAULT_SAMPLE_DSL);
+      const seed = loadDefaultExampleDsl();
+      const wsInfo = repo.createWorkspace(seed.name, seed.description, seed.dsl);
       try {
-        const parsed = parseDsl(DEFAULT_SAMPLE_DSL);
+        const parsed = parseDsl(seed.dsl);
         const jsonCache = workspaceToStructurizrJson(parsed);
         repo.updateWorkspace(wsInfo.id, { jsonCache, state: 'PUBLISHED' });
         repo.publishWorkspaceVersion(wsInfo.id, '1.0.0', 'Initial seed architecture');

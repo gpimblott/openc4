@@ -21,14 +21,14 @@ describe('API Endpoints', () => {
     expect(res.status).toBe(200);
     const workspaces = await res.json();
     expect(workspaces.length).toBeGreaterThanOrEqual(1);
-    expect(workspaces.some((w: any) => w.name === 'Big Bank plc')).toBe(true);
+    expect(workspaces.some((w: any) => w.name === 'OpenC4')).toBe(true);
   });
 
   it('retrieves official Structurizr workspace JSON', async () => {
     const res = await app.request('/api/workspace/1');
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.name).toBe('Big Bank plc');
+    expect(data.name).toBe('OpenC4');
     expect(data.model).toBeDefined();
     expect(data.model.people).toBeDefined();
     expect(data.model.softwareSystems).toBeDefined();
@@ -124,7 +124,7 @@ describe('API Endpoints', () => {
     expect(res.status).toBe(200);
     const items = await res.json();
     expect(items.length).toBeGreaterThanOrEqual(1);
-    expect(items.some((item: any) => item.name.includes('Internet Banking System'))).toBe(true);
+    expect(items.some((item: any) => item.name.includes('OpenC4 Platform'))).toBe(true);
   });
 
   it('exports diagrams to mermaid, plantuml, and json', async () => {
@@ -144,7 +144,7 @@ describe('API Endpoints', () => {
     const resJson = await app.request('/api/workspaces/1/export?format=json');
     expect(resJson.status).toBe(200);
     const textJson = await resJson.text();
-    expect(textJson).toContain('Big Bank plc');
+    expect(textJson).toContain('OpenC4');
   });
 
   it('computes diff against published baseline with 0 differences when unmodified', async () => {
@@ -177,17 +177,17 @@ describe('API Endpoints', () => {
     // Verify catalog has both 1.0.0 and 1.1.0 records
     const catRes = await app.request('/api/enterprise/catalog');
     const catItems = await catRes.json();
-    const bankingItems = catItems.filter((item: any) => item.name === 'Internet Banking System');
-    expect(bankingItems.length).toBeGreaterThanOrEqual(2);
-    expect(bankingItems.some((i: any) => i.version === '1.0.0')).toBe(true);
-    expect(bankingItems.some((i: any) => i.version === '1.1.0')).toBe(true);
+    const openc4Items = catItems.filter((item: any) => item.name === 'OpenC4 Platform');
+    expect(openc4Items.length).toBeGreaterThanOrEqual(2);
+    expect(openc4Items.some((i: any) => i.version === '1.0.0')).toBe(true);
+    expect(openc4Items.some((i: any) => i.version === '1.1.0')).toBe(true);
 
     // Verify catalog with ?latest=true only returns the latest version
     const latestCatRes = await app.request('/api/enterprise/catalog?latest=true');
     const latestCatItems = await latestCatRes.json();
-    const latestBankingItems = latestCatItems.filter((item: any) => item.name === 'Internet Banking System');
-    expect(latestBankingItems.length).toBe(1);
-    expect(latestBankingItems[0].version).toBe('1.1.0');
+    const latestOpenc4Items = latestCatItems.filter((item: any) => item.name === 'OpenC4 Platform');
+    expect(latestOpenc4Items.length).toBe(1);
+    expect(latestOpenc4Items[0].version).toBe('1.1.0');
 
     // Verify catalog with workspaceId filter
     const ws1CatRes = await app.request('/api/enterprise/catalog?workspaceId=1');
