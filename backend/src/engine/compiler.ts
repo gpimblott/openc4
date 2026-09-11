@@ -429,7 +429,19 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     description?: string;
     childIds: string[];
     parentBoundaryId?: string | null;
+    stroke?: string | null;
+    strokeWidth?: number | null;
   }> = [];
+
+  // Style mapping
+  const styleMap = new Map<string, any>();
+  for (const s of ws.elementStyles) {
+    styleMap.set(s.tag.toLowerCase(), s);
+  }
+
+  const boundaryStyle = styleMap.get('boundary');
+  const bStroke = boundaryStyle?.stroke || null;
+  const bStrokeWidth = boundaryStyle?.strokeWidth || null;
 
   if (view) {
     if (view.viewType === 'container' && view.softwareSystemId) {
@@ -447,7 +459,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             technology: '',
             description: targetSys.description,
             childIds,
-            parentBoundaryId: null
+            parentBoundaryId: null,
+            stroke: bStroke,
+            strokeWidth: bStrokeWidth
           });
         }
       }
@@ -471,7 +485,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
               technology: '',
               description: targetSys.description,
               childIds: sysChildIds,
-              parentBoundaryId: null
+              parentBoundaryId: null,
+              stroke: bStroke,
+              strokeWidth: bStrokeWidth
             });
           }
         }
@@ -488,7 +504,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             technology: targetCont.technology || '',
             description: targetCont.description,
             childIds: compChildIds,
-            parentBoundaryId: targetSys?.id || null
+            parentBoundaryId: targetSys?.id || null,
+            stroke: bStroke,
+            strokeWidth: bStrokeWidth
           });
         }
       }
@@ -496,12 +514,6 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   }
 
   const boundary = boundaries.length > 0 ? boundaries[boundaries.length - 1] : null;
-
-  // Style mapping
-  const styleMap = new Map<string, any>();
-  for (const s of ws.elementStyles) {
-    styleMap.set(s.tag.toLowerCase(), s);
-  }
 
   // Generate React Flow nodes
   const nodes: any[] = [];
@@ -522,15 +534,28 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         ? '#438dd5'
         : '#85bbf0';
     let textColor = elem.type !== 'component' ? '#ffffff' : '#000000';
-    let shape = 'RoundedBox';
+    let shape = elem.type === 'person' ? 'Person' : 'RoundedBox';
+    let stroke: string | null = null;
+    let strokeWidth: number | null = null;
 
-    for (const tag of elem.tags) {
+    // Sort tags so generic "Element" is applied first, allowing specific tags (Person, Database, etc.) to override
+    const sortedTags = [...elem.tags].sort((a, b) => {
+      const aIsElem = a.toLowerCase() === 'element';
+      const bIsElem = b.toLowerCase() === 'element';
+      if (aIsElem && !bIsElem) return -1;
+      if (!aIsElem && bIsElem) return 1;
+      return 0;
+    });
+
+    for (const tag of sortedTags) {
       const tagLower = tag.toLowerCase();
       if (styleMap.has(tagLower)) {
         const st = styleMap.get(tagLower);
         if (st.background) bgColor = st.background;
         if (st.color) textColor = st.color;
         if (st.shape) shape = st.shape;
+        if (st.stroke) stroke = st.stroke;
+        if (st.strokeWidth !== undefined && st.strokeWidth !== null) strokeWidth = st.strokeWidth;
       }
     }
 
@@ -562,7 +587,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         tags: elem.tags,
         backgroundColor: bgColor,
         color: textColor,
-        shape
+        shape,
+        stroke,
+        strokeWidth
       }
     });
   }

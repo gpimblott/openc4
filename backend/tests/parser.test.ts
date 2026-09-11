@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDsl, ParseError } from '../src/engine/parser.js';
+import { compileViewToCanvas } from '../src/engine/compiler.js';
 
 const SAMPLE_DSL = `
 workspace "Big Bank plc" "Internet Banking System architecture model" {
@@ -138,5 +139,164 @@ describe('DSL Parser', () => {
     expect(ws.name).toBe('Test');
     expect(ws.model.people.length).toBe(1);
     expect(ws.model.softwareSystems.length).toBe(1);
+  });
+
+  it('supports !identifiers hierarchical and resolves scoped container relationships', () => {
+    const hierarchicalDsl = `
+    workspace "Name" "Description" {
+        !identifiers hierarchical
+
+        model {
+            u = person "User"
+            ss = softwareSystem "Software System" {
+                wa = container "Web Application"
+                db = container "Database Schema" {
+                    tags "Database"
+                }
+            }
+
+            u -> ss.wa "Uses"
+            ss.wa -> ss.db "Reads from and writes to"
+        }
+
+        views {
+            systemContext ss "Diagram1" {
+                include *
+            }
+
+            container ss "Diagram2" {
+                include *
+            }
+        }
+    }
+    `;
+    const ws = parseDsl(hierarchicalDsl);
+    expect(ws.model.people.length).toBe(1);
+    expect(ws.model.softwareSystems.length).toBe(1);
+    const ss = ws.model.softwareSystems[0];
+    expect(ss.containers.length).toBe(2);
+    expect(ss.containers[0].identifier).toBe('ss.wa');
+    expect(ss.containers[1].identifier).toBe('ss.db');
+
+    // Both relationships should have resolved IDs (not raw 'ss.wa' or 'ss.db' string)
+    expect(ws.model.relationships).toHaveLength(2);
+    const uRel = ws.model.relationships.find((r) => r.description === 'Uses');
+    expect(uRel).toBeDefined();
+    expect(uRel!.sourceId).toBe(ws.model.people[0].id);
+    expect(uRel!.destinationId).toBe(ss.containers[0].id);
+
+    const dbRel = ws.model.relationships.find((r) => r.description === 'Reads from and writes to');
+    expect(dbRel).toBeDefined();
+    expect(dbRel!.sourceId).toBe(ss.containers[0].id);
+    expect(dbRel!.destinationId).toBe(ss.containers[1].id);
+
+    // Verify systemContext diagram includes user and rolled-up edge
+    const scCanvas = compileViewToCanvas(ws, 'Diagram1');
+    const scNodeNames = scCanvas.nodes.map((n: any) => n.data.name);
+    expect(scNodeNames).toContain('Software System');
+    expect(scNodeNames).toContain('User');
+    expect(scCanvas.edges.length).toBe(1);
+    expect(scCanvas.edges[0].label).toBe('Uses');
+
+    // Verify container diagram includes containers, external user, and both edges
+    const contCanvas = compileViewToCanvas(ws, 'Diagram2');
+    const contNodeNames = contCanvas.nodes.map((n: any) => n.data.name);
+    expect(contNodeNames).toContain('Web Application');
+    expect(contNodeNames).toContain('Database Schema');
+    expect(contNodeNames).toContain('User');
+    expect(contCanvas.edges.length).toBe(2);
+  });
+
+  it('supports qualified dot notation for components (system.container.component)', () => {
+    const compDsl = `
+    workspace "Component Test" {
+        !identifiers hierarchical
+        model {
+            u = person "User"
+            s = softwareSystem "System" {
+                c = container "App" {
+                    comp = component "Controller"
+                }
+            }
+            u -> s.c.comp "Calls"
+        }
+    }
+    `;
+    const ws = parseDsl(compDsl);
+    const user = ws.model.people[0];
+    const comp = ws.model.softwareSystems[0].containers[0].components[0];
+    expect(comp.identifier).toBe('s.c.comp');
+    expect(ws.model.relationships).toHaveLength(1);
+    expect(ws.model.relationships[0].destinationId).toBe(comp.id);
+  });
+
+  it('correctly compiles shape, stroke, strokeWidth, and boundary styles with tag precedence', () => {
+    const styledDsl = `
+    workspace "Styled Workspace" {
+        model {
+            u = person "User"
+            ss = softwareSystem "Software System" {
+                wa = container "Web Application"
+                db = container "Database Schema" {
+                    tags "Database"
+                }
+            }
+            u -> wa "Uses"
+            wa -> db "Reads from"
+        }
+        views {
+            container ss "Containers" {
+                include *
+            }
+            styles {
+                element "Element" {
+                    color #f88728
+                    stroke #f88728
+                    strokeWidth 7
+                    shape roundedbox
+                }
+                element "Person" {
+                    shape person
+                }
+                element "Database" {
+                    shape cylinder
+                }
+                element "Boundary" {
+                    strokeWidth 5
+                }
+                relationship "Relationship" {
+                    thickness 4
+                }
+            }
+        }
+    }
+    `;
+    const ws = parseDsl(styledDsl);
+    const canvas = compileViewToCanvas(ws, 'Containers');
+
+    const userNode = canvas.nodes.find((n: any) => n.data.name === 'User');
+    expect(userNode).toBeDefined();
+    expect(userNode.data.shape).toBe('person');
+    expect(userNode.data.stroke).toBe('#f88728');
+    expect(userNode.data.strokeWidth).toBe(7);
+    expect(userNode.data.color).toBe('#f88728');
+
+    const dbNode = canvas.nodes.find((n: any) => n.data.name === 'Database Schema');
+    expect(dbNode).toBeDefined();
+    expect(dbNode.data.shape).toBe('cylinder');
+    expect(dbNode.data.stroke).toBe('#f88728');
+    expect(dbNode.data.strokeWidth).toBe(7);
+
+    const waNode = canvas.nodes.find((n: any) => n.data.name === 'Web Application');
+    expect(waNode).toBeDefined();
+    expect(waNode.data.shape).toBe('roundedbox');
+    expect(waNode.data.strokeWidth).toBe(7);
+
+    expect(canvas.boundary).toBeDefined();
+    expect(canvas.boundary.strokeWidth).toBe(5);
+
+    expect(canvas.edges.length).toBe(2);
+    expect(canvas.edges[0].style.strokeWidth).toBe(4);
+    expect(canvas.edges[1].style.strokeWidth).toBe(4);
   });
 });

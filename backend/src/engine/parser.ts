@@ -236,6 +236,7 @@ export class Parser {
   private nextId: number = 1;
   identifierToId: Map<string, string> = new Map();
   idToElement: Map<string, any> = new Map();
+  identifiersMode: 'flat' | 'hierarchical' = 'flat';
 
   constructor(tokens: Token[], sourceText: string = '') {
     this.tokens = tokens;
@@ -301,6 +302,13 @@ export class Parser {
   }
 
   parse(): Workspace {
+    while (this.current().type === 'IDENTIFIER' && this.current().value.toLowerCase() === '!identifiers') {
+      this.pos += 1;
+      const arg = this.expectStringOrIdentifier().toLowerCase();
+      if (arg === 'hierarchical') this.identifiersMode = 'hierarchical';
+      else if (arg === 'flat') this.identifiersMode = 'flat';
+    }
+
     if (this.match('IDENTIFIER', 'workspace')) {
       const args = this.parseStringArgs();
       if (args.length > 0) this.workspace.name = args[0];
@@ -377,6 +385,15 @@ export class Parser {
         const args = this.parseStringArgs();
         this.workspace.themes.push(...args);
         return;
+      } else if (val === '!identifiers') {
+        this.pos += 1;
+        const arg = this.expectStringOrIdentifier().toLowerCase();
+        if (arg === 'hierarchical') {
+          this.identifiersMode = 'hierarchical';
+        } else if (arg === 'flat') {
+          this.identifiersMode = 'flat';
+        }
+        return;
       } else if (val.startsWith('!')) {
         this.pos += 1;
         while (this.pos < this.tokens.length && this.current().line === curr.line && this.current().type !== 'EOF') {
@@ -407,7 +424,16 @@ export class Parser {
     const nextCurr = this.current();
     const keyword = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
 
-    if (keyword.startsWith('!')) {
+    if (keyword === '!identifiers') {
+      this.pos += 1;
+      const arg = this.expectStringOrIdentifier().toLowerCase();
+      if (arg === 'hierarchical') {
+        this.identifiersMode = 'hierarchical';
+      } else if (arg === 'flat') {
+        this.identifiersMode = 'flat';
+      }
+      return;
+    } else if (keyword.startsWith('!')) {
       this.pos += 1;
       while (this.pos < this.tokens.length && this.current().line === nextCurr.line && this.current().type !== 'EOF') {
         this.pos += 1;
@@ -563,9 +589,12 @@ export class Parser {
 
     const eid = this.getId();
     const ident = identifier || name.toLowerCase().replace(/ /g, '_');
+    const qualifiedIdent = system.identifier ? `${system.identifier}.${ident}` : ident;
+    const containerIdent = this.identifiersMode === 'hierarchical' ? qualifiedIdent : ident;
+
     const container: Container = {
       id: eid,
-      identifier: ident,
+      identifier: containerIdent,
       systemId: system.id,
       name,
       description: desc,
@@ -577,6 +606,10 @@ export class Parser {
 
     this.identifierToId.set(ident, eid);
     this.identifierToId.set(name, eid);
+    if (system.identifier) {
+      this.identifierToId.set(`${system.identifier}.${ident}`, eid);
+      this.identifierToId.set(`${system.identifier}.${name}`, eid);
+    }
     this.idToElement.set(eid, container);
     system.containers.push(container);
 
@@ -601,7 +634,7 @@ export class Parser {
         } else if (nextCurr.type === 'ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
-          this.parseRelationshipDetails(ident, dest, nextCurr.line);
+          this.parseRelationshipDetails(containerIdent, dest, nextCurr.line);
         } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
           this.parseRelationship(nextCurr.value, nextCurr.line);
         } else if (kw === 'tags') {
@@ -632,9 +665,24 @@ export class Parser {
 
     const eid = this.getId();
     const ident = identifier || name.toLowerCase().replace(/ /g, '_');
+    const parentSys = this.workspace.model.softwareSystems.find((s) => s.id === container.systemId);
+    const sysIdent = parentSys?.identifier;
+    const contIdent = container.identifier;
+
+    let componentIdent = ident;
+    if (this.identifiersMode === 'hierarchical') {
+      if (contIdent.includes('.')) {
+        componentIdent = `${contIdent}.${ident}`;
+      } else if (sysIdent) {
+        componentIdent = `${sysIdent}.${contIdent}.${ident}`;
+      } else {
+        componentIdent = `${contIdent}.${ident}`;
+      }
+    }
+
     const component: Component = {
       id: eid,
-      identifier: ident,
+      identifier: componentIdent,
       containerId: container.id,
       name,
       description: desc,
@@ -645,6 +693,12 @@ export class Parser {
 
     this.identifierToId.set(ident, eid);
     this.identifierToId.set(name, eid);
+    this.identifierToId.set(`${contIdent}.${ident}`, eid);
+    if (sysIdent) {
+      const shortCont = contIdent.startsWith(`${sysIdent}.`) ? contIdent.slice(sysIdent.length + 1) : contIdent;
+      this.identifierToId.set(`${sysIdent}.${shortCont}.${ident}`, eid);
+      this.identifierToId.set(`${sysIdent}.${shortCont}.${name}`, eid);
+    }
     this.idToElement.set(eid, component);
     container.components.push(component);
 
@@ -654,7 +708,7 @@ export class Parser {
         if (curr.type === 'ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
-          this.parseRelationshipDetails(ident, dest, curr.line);
+          this.parseRelationshipDetails(componentIdent, dest, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && curr.value.toLowerCase() === 'tags') {
@@ -966,6 +1020,22 @@ export class Parser {
         }
       }
       view.includedElementIds = resolvedIncluded;
+
+      const resolvedExcluded: string[] = [];
+      for (const item of view.excludedElementIds) {
+        if (this.identifierToId.has(item)) {
+          resolvedExcluded.push(this.identifierToId.get(item)!);
+        } else {
+          resolvedExcluded.push(item);
+        }
+      }
+      view.excludedElementIds = resolvedExcluded;
+    }
+
+    for (const node of this.workspace.model.deploymentNodes) {
+      node.containerInstances = node.containerInstances.map((ci) =>
+        this.identifierToId.has(ci) ? this.identifierToId.get(ci)! : ci
+      );
     }
   }
 }

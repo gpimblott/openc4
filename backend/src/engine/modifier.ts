@@ -52,8 +52,20 @@ export function deleteFromDsl(dslCode: string, options: DeleteOptions): DeleteRe
     registerElem(s);
     for (const c of s.containers) {
       registerElem(c, s.id);
+      if (s.identifier && c.identifier) {
+        const qualified = c.identifier.startsWith(`${s.identifier}.`) ? c.identifier : `${s.identifier}.${c.identifier}`;
+        identToId.set(qualified, c.id);
+      }
       for (const comp of c.components) {
         registerElem(comp, c.id);
+        if (c.identifier && comp.identifier) {
+          const qualified = comp.identifier.startsWith(`${c.identifier}.`) ? comp.identifier : `${c.identifier}.${comp.identifier}`;
+          identToId.set(qualified, comp.id);
+        }
+        if (s.identifier && c.identifier && comp.identifier) {
+          const cShort = c.identifier.replace(`${s.identifier}.`, '');
+          identToId.set(`${s.identifier}.${cShort}.${comp.identifier}`, comp.id);
+        }
       }
     }
   }
@@ -92,6 +104,11 @@ export function deleteFromDsl(dslCode: string, options: DeleteOptions): DeleteRe
     if (ident) deletedIdents.add(ident);
     const elem = elementMap.get(nid);
     if (elem?.name) deletedIdents.add(elem.name);
+  }
+  for (const [qid, mappedId] of identToId.entries()) {
+    if (allDeletedNodeIds.has(mappedId)) {
+      deletedIdents.add(qid);
+    }
   }
 
   // Find relationships to delete:

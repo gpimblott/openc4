@@ -10,19 +10,27 @@ export interface C4BoundaryNodeData {
   description?: string;
   childIds: string[];
   parentBoundaryId?: string | null;
+  stroke?: string | null;
+  strokeWidth?: number | null;
 }
 
 const C4BoundaryNode = ({ data }: NodeProps) => {
   const boundary = data as unknown as C4BoundaryNodeData;
   const isContainer = boundary.type === 'container';
+  const customBorderWidth = boundary.strokeWidth ? `${boundary.strokeWidth}px` : undefined;
+  const customBorderColor = boundary.stroke || undefined;
 
   return (
     <div
-      className={`w-full h-full rounded-2xl border-2 border-dashed pointer-events-none transition-colors duration-150 shadow-sm relative ${
+      className={`w-full h-full rounded-2xl border-dashed pointer-events-none transition-colors duration-150 shadow-sm relative ${
         isContainer
           ? 'border-sky-400/60 bg-sky-950/20'
           : 'border-indigo-400/40 bg-slate-950/40'
-      }`}
+      } ${!customBorderWidth ? 'border-2' : ''}`}
+      style={{
+        borderWidth: customBorderWidth,
+        borderColor: customBorderColor,
+      }}
     >
       {/* Header Badge */}
       <div
