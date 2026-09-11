@@ -52,8 +52,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const headers = new Headers(init?.headers);
-      if (token && !headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
+      const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null);
+      if (activeToken && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${activeToken}`);
       }
 
       const res = await fetch(input, {

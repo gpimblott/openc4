@@ -110,7 +110,22 @@ export function App() {
   const [isUserManagementOpen, setIsUserManagementOpen] = useState<boolean>(false);
 
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number>(1);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number | null>(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramWsId = urlParams.get('workspaceId');
+      if (paramWsId) {
+        const parsed = parseInt(paramWsId, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      const saved = localStorage.getItem('openc4_current_workspace_id');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+    return null;
+  });
   const [workspaceInfo, setWorkspaceInfo] = useState<any>(null);
 
   // DSL and Editor
@@ -232,15 +247,18 @@ export function App() {
     authFetch('/api/workspaces')
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setWorkspaces(data);
-          if (data.length > 0 && !currentWorkspaceId) {
-            setCurrentWorkspaceId(data[0].id);
-          }
+          setCurrentWorkspaceId((prev) => {
+            if (prev && data.some((w) => w.id === prev)) {
+              return prev;
+            }
+            return data[0].id;
+          });
         }
       })
       .catch((err) => console.error('Failed to load workspaces', err));
-  }, [currentWorkspaceId, authFetch]);
+  }, [authFetch]);
 
   useEffect(() => {
     loadWorkspaces();
@@ -277,7 +295,15 @@ export function App() {
       : `/api/workspaces/${wsId}/studio`;
 
     authFetch(url)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 404) {
+            loadWorkspaces();
+          }
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
         if (!data || !data.workspace) return;
         setWorkspaceInfo(data.workspace);
@@ -314,13 +340,27 @@ export function App() {
         }
       })
       .catch((err) => console.error('Failed to load studio data', err));
-  }, [applyCanvasData, authFetch]);
+  }, [applyCanvasData, authFetch, loadWorkspaces]);
 
   useEffect(() => {
     if (currentWorkspaceId) {
       loadStudioData(currentWorkspaceId);
     }
   }, [currentWorkspaceId, loadStudioData, user]);
+
+  // Keep active workspace ID persisted in localStorage & URL search params
+  useEffect(() => {
+    if (currentWorkspaceId) {
+      localStorage.setItem('openc4_current_workspace_id', currentWorkspaceId.toString());
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('workspaceId') !== currentWorkspaceId.toString()) {
+          url.searchParams.set('workspaceId', currentWorkspaceId.toString());
+          window.history.replaceState({}, '', url.toString());
+        }
+      }
+    }
+  }, [currentWorkspaceId]);
 
   // Update browser window title
   useEffect(() => {
@@ -673,6 +713,7 @@ export function App() {
     }
 
     compileTimerRef.current = setTimeout(() => {
+      if (!currentWorkspaceId) return;
       authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -704,8 +745,8 @@ export function App() {
 
   // Save workspace
   const handleSave = () => {
-    if (!canEdit) {
-      setToast({ type: 'error', message: 'Read-only access: Cannot save changes' });
+    if (!canEdit || !currentWorkspaceId) {
+      setToast({ type: 'error', message: !canEdit ? 'Read-only access: Cannot save changes' : 'No workspace selected' });
       return;
     }
     setIsSaving(true);
@@ -762,6 +803,7 @@ export function App() {
   // Switch View (compiles current in-editor DSL for the target view)
   const handleViewChange = useCallback((viewKey: string) => {
     setCurrentViewKey(viewKey);
+    if (!currentWorkspaceId) return;
     authFetch(`/api/workspaces/${currentWorkspaceId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -816,7 +858,7 @@ export function App() {
 
   // Execute confirmed deletion
   const handleConfirmDelete = async () => {
-    if (!canEdit) return;
+    if (!canEdit || !currentWorkspaceId) return;
     if (pendingDeleteNodes.length === 0 && pendingDeleteEdges.length === 0) return;
     setIsDeleting(true);
 
@@ -957,6 +999,7 @@ export function App() {
   // Load Catalog data (latest component versions for current workspace)
   const loadCatalog = useCallback((wsId?: number) => {
     const targetWsId = wsId ?? currentWorkspaceId;
+    if (!targetWsId) return;
     authFetch(`/api/enterprise/catalog?latest=true&workspaceId=${targetWsId}`)
       .then((res) => res.json())
       .then((data) => {
@@ -1011,6 +1054,7 @@ export function App() {
 
   // Load a historical version snapshot into editor
   const handleLoadVersion = (version: string) => {
+    if (!currentWorkspaceId) return;
     if (version === 'current') {
       setSelectedVersion('current');
       loadStudioData(currentWorkspaceId);
@@ -1050,7 +1094,7 @@ export function App() {
 
   // Restore past version as active workspace model
   const handleRestoreVersionSubmit = async (version: string): Promise<boolean> => {
-    if (!canPublish) {
+    if (!canPublish || !currentWorkspaceId) {
       setToast({ type: 'error', message: 'Permission denied: Cannot restore versions' });
       return false;
     }
@@ -1083,6 +1127,7 @@ export function App() {
 
   // Open Visual Diff
   const handleOpenDiff = (v1?: string, v2?: string) => {
+    if (!currentWorkspaceId) return;
     const params = new URLSearchParams();
     if (v1) params.append('v1', v1);
     if (v2) params.append('v2', v2);
@@ -1099,7 +1144,7 @@ export function App() {
 
   // Publish workspace
   const handlePublishSubmit = async (version: string, commitMessage: string): Promise<boolean> => {
-    if (!canPublish) {
+    if (!canPublish || !currentWorkspaceId) {
       setToast({ type: 'error', message: 'Permission denied: Cannot publish versions' });
       return false;
     }
@@ -1235,7 +1280,7 @@ export function App() {
           {/* Workspace Selector & New Button */}
           <div className="flex items-center gap-1 shrink-0">
             <select
-              value={currentWorkspaceId}
+              value={currentWorkspaceId ?? ''}
               onChange={(e) => {
                 setCurrentWorkspaceId(Number(e.target.value));
                 setSelectedVersion('current');
@@ -1780,7 +1825,7 @@ export function App() {
           {leftPanelTab === 'catalog' && (
             <CatalogTab
               catalog={catalog}
-              currentWorkspaceId={currentWorkspaceId}
+              currentWorkspaceId={currentWorkspaceId || 0}
               onRefresh={loadCatalog}
               onInsertDsl={handleInsertDsl}
             />
@@ -1983,7 +2028,7 @@ export function App() {
       <ExportModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
-        workspaceId={currentWorkspaceId}
+        workspaceId={currentWorkspaceId || 0}
         currentViewKey={currentViewKey}
       />
 
@@ -2016,7 +2061,7 @@ export function App() {
         onClose={() => setIsDeleteWorkspaceModalOpen(false)}
         onDelete={handleDeleteWorkspaceSubmit}
         workspaces={workspaces}
-        currentWorkspaceId={currentWorkspaceId}
+        currentWorkspaceId={currentWorkspaceId || 0}
       />
 
       <RestoreVersionModal
