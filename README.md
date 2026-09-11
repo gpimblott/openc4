@@ -237,9 +237,14 @@ Sign in to the Web Studio using any of the seeded accounts:
 
 ### Option 2: Docker Compose
 
+Start both OpenC4 and the official Structurizr Playground concurrently:
+
 ```bash
 docker compose up --build
 ```
+
+- **OpenC4 Web Studio**: [http://localhost:8000](http://localhost:8000)
+- **Structurizr Playground**: [http://localhost:8080](http://localhost:8080)
 
 ---
 

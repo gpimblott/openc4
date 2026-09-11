@@ -181,6 +181,56 @@ describe('Authentication & CASL RBAC', () => {
       expect(res.status).toBe(403);
     });
 
+    it('blocks viewer from deleting workspace with 403 Forbidden', async () => {
+      const res = await app.request('/api/workspaces/1', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${viewerToken}` }
+      });
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe('Forbidden');
+    });
+
+    it('allows editor to delete workspace', async () => {
+      // Create a test workspace first
+      const createRes = await app.request('/api/workspaces', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${editorToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: 'Editor Workspace To Delete' })
+      });
+      expect(createRes.status).toBe(200);
+      const ws = await createRes.json();
+
+      const delRes = await app.request(`/api/workspaces/${ws.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${editorToken}` }
+      });
+      expect(delRes.status).toBe(200);
+    });
+
+    it('allows admin to delete workspace', async () => {
+      // Create a test workspace first
+      const createRes = await app.request('/api/workspaces', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: 'Admin Workspace To Delete' })
+      });
+      expect(createRes.status).toBe(200);
+      const ws = await createRes.json();
+
+      const delRes = await app.request(`/api/workspaces/${ws.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      expect(delRes.status).toBe(200);
+    });
+
     it('allows editor to save and modify workspace', async () => {
       const res = await app.request('/api/workspaces/1/save', {
         method: 'POST',

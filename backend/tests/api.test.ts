@@ -478,5 +478,70 @@ system = softwareSystem "Valid System" {
     expect(data.canvas.availableViews.some((v: any) => v.key === 'BackendComponents')).toBe(true);
     expect(data.findings.some((f: any) => f.message.includes('disconnected'))).toBe(false);
   });
+
+  it('deletes an entire workspace and its associated data via DELETE /api/workspaces/:id', async () => {
+    // 1. Create a temporary workspace
+    const createRes = await app.request('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Workspace To Delete',
+        description: 'Temporary workspace for deletion test'
+      })
+    });
+    expect(createRes.status).toBe(200);
+    const ws = await createRes.json();
+    const wsId = ws.id;
+
+    // 2. Add an extra file to the workspace
+    const fileRes = await app.request(`/api/workspaces/${wsId}/files`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'components.dsl',
+        content: 'backend = softwareSystem "Backend"'
+      })
+    });
+    expect(fileRes.status).toBe(200);
+
+    // 3. Delete workspace via DELETE /api/workspaces/:id
+    const deleteRes = await app.request(`/api/workspaces/${wsId}`, {
+      method: 'DELETE'
+    });
+    expect(deleteRes.status).toBe(200);
+    const deleteData = await deleteRes.json();
+    expect(deleteData.success).toBe(true);
+
+    // 4. Verify workspace no longer exists in list or studio
+    const listRes = await app.request('/api/workspaces');
+    const workspaces = await listRes.json();
+    expect(workspaces.some((w: any) => w.id === wsId)).toBe(false);
+
+    const studioRes = await app.request(`/api/workspaces/${wsId}/studio`);
+    expect(studioRes.status).toBe(404);
+
+    // 5. Deleting already deleted workspace returns 404
+    const deleteAgainRes = await app.request(`/api/workspaces/${wsId}`, {
+      method: 'DELETE'
+    });
+    expect(deleteAgainRes.status).toBe(404);
+  });
+
+  it('deletes workspace via singular alias DELETE /api/workspace/:id', async () => {
+    const createRes = await app.request('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Singular Alias Workspace'
+      })
+    });
+    const ws = await createRes.json();
+
+    const deleteRes = await app.request(`/api/workspace/${ws.id}`, {
+      method: 'DELETE'
+    });
+    expect(deleteRes.status).toBe(200);
+  });
 });
+
 

@@ -20,6 +20,7 @@ interface AuthContextType {
   isLoading: boolean;
   canEdit: boolean;
   canPublish: boolean;
+  canDelete: boolean;
   isAdmin: boolean;
   isLoginModalOpen: boolean;
   setIsLoginModalOpen: (open: boolean) => void;
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const canEdit = ability.can('update', 'Workspace');
   const canPublish = ability.can('publish', 'Workspace');
+  const canDelete = ability.can('delete', 'Workspace');
   const isAdmin = ability.can('manage', 'all');
 
   // Authenticated fetch wrapper
@@ -189,6 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       canEdit,
       canPublish,
+      canDelete,
       isAdmin,
       isLoginModalOpen,
       setIsLoginModalOpen,
@@ -205,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       canEdit,
       canPublish,
+      canDelete,
       isAdmin,
       isLoginModalOpen,
       login,

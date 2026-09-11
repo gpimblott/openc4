@@ -10,6 +10,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 import { parseDsl, ParseError } from '../engine/parser.js';
 import {
@@ -387,6 +390,32 @@ export function createApp(
       // ignore
     }
     return c.json(ws);
+  });
+
+  app.delete('/api/workspaces/:id', authMiddleware, requireAbility('delete', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const success = repo.deleteWorkspace(workspaceId);
+    if (!success) {
+      return c.json({ detail: 'Failed to delete workspace' }, 500);
+    }
+    return c.json({ success: true, message: `Workspace ${workspaceId} deleted successfully` });
+  });
+
+  app.delete('/api/workspace/:id', authMiddleware, requireAbility('delete', 'Workspace'), (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const ws = repo.getWorkspace(workspaceId);
+    if (!ws) {
+      return c.json({ detail: 'Workspace not found' }, 404);
+    }
+    const success = repo.deleteWorkspace(workspaceId);
+    if (!success) {
+      return c.json({ detail: 'Failed to delete workspace' }, 500);
+    }
+    return c.json({ success: true, message: `Workspace ${workspaceId} deleted successfully` });
   });
 
   // Workspace Files Endpoints
@@ -1089,23 +1118,47 @@ export function createApp(
   });
 
   // Frontend static assets fallback
-  const frontendDist = path.resolve('../frontend/dist');
-  if (fs.existsSync(frontendDist)) {
+  const candidateDistPaths = [
+    path.resolve('frontend/dist'),
+    path.resolve('../frontend/dist'),
+    path.resolve(process.cwd(), 'frontend/dist'),
+    path.resolve(process.cwd(), '../frontend/dist'),
+    path.resolve(__dirname, '../../../frontend/dist'),
+    path.resolve(__dirname, '../../frontend/dist')
+  ];
+  const frontendDist = candidateDistPaths.find((p) => fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html')));
+
+  if (frontendDist) {
     app.get('*', async (c, next) => {
-      const filePath = path.join(frontendDist, c.req.path === '/' ? 'index.html' : c.req.path);
+      // Don't intercept API or MCP routes
+      if (c.req.path.startsWith('/api') || c.req.path.startsWith('/mcp')) {
+        return next();
+      }
+
+      const cleanPath = c.req.path === '/' ? 'index.html' : c.req.path.replace(/^\/+/, '');
+      const filePath = path.join(frontendDist, cleanPath);
+
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
         const ext = path.extname(filePath).toLowerCase();
         const contentTypes: Record<string, string> = {
-          '.html': 'text/html',
-          '.js': 'application/javascript',
-          '.css': 'text/css',
-          '.json': 'application/json',
+          '.html': 'text/html; charset=utf-8',
+          '.js': 'application/javascript; charset=utf-8',
+          '.mjs': 'application/javascript; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.json': 'application/json; charset=utf-8',
           '.svg': 'image/svg+xml',
-          '.png': 'image/png'
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.ico': 'image/x-icon',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.ttf': 'font/ttf'
         };
         return c.body(content, 200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
       }
+
       // Fallback for SPA routing
       const indexHtml = path.join(frontendDist, 'index.html');
       if (fs.existsSync(indexHtml)) {

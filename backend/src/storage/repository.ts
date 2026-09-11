@@ -262,6 +262,22 @@ export class WorkspaceRepository {
     return this.getWorkspace(workspaceId);
   }
 
+  deleteWorkspace(workspaceId: number): boolean {
+    const ws = this.getWorkspace(workspaceId);
+    if (!ws) return false;
+
+    // Delete associated files, folders, versions, catalog entries, and locks
+    this.db.prepare('DELETE FROM workspace_files WHERE workspace_id = ?').run(workspaceId);
+    this.db.prepare('DELETE FROM workspace_folders WHERE workspace_id = ?').run(workspaceId);
+    this.db.prepare('DELETE FROM workspace_versions WHERE workspace_id = ?').run(workspaceId);
+    this.db.prepare('DELETE FROM enterprise_catalog WHERE workspace_id = ?').run(workspaceId);
+    this.db.prepare('DELETE FROM workspace_locks WHERE workspace_id = ?').run(workspaceId);
+
+    const stmt = this.db.prepare('DELETE FROM workspaces WHERE id = ?');
+    const res = stmt.run(workspaceId);
+    return res.changes > 0;
+  }
+
   publishWorkspaceVersion(
     workspaceId: number,
     version: string,

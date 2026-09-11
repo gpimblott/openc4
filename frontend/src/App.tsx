@@ -49,6 +49,7 @@ import { McpValidationModal } from './components/McpValidationModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { PublishVersionModal } from './components/PublishVersionModal';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
+import { DeleteWorkspaceModal } from './components/DeleteWorkspaceModal';
 import { RestoreVersionModal } from './components/RestoreVersionModal';
 import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
@@ -101,6 +102,7 @@ export function App() {
     user,
     canEdit,
     canPublish,
+    canDelete,
     authFetch,
     isLoginModalOpen,
     setIsLoginModalOpen
@@ -160,6 +162,7 @@ export function App() {
   // Dialog modal states
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isCreateWorkspaceModalOpen, setIsCreateWorkspaceModalOpen] = useState(false);
+  const [isDeleteWorkspaceModalOpen, setIsDeleteWorkspaceModalOpen] = useState(false);
   const [restoreTargetVersion, setRestoreTargetVersion] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -1168,6 +1171,52 @@ export function App() {
     }
   };
 
+  const handleDeleteWorkspaceSubmit = async (workspaceId: number): Promise<boolean> => {
+    if (!canDelete) {
+      setToast({ type: 'error', message: 'Permission denied: Cannot delete workspaces' });
+      return false;
+    }
+
+    const wsToDelete = workspaces.find((w) => w.id === workspaceId);
+    const wsName = wsToDelete?.name || `Workspace #${workspaceId}`;
+
+    try {
+      const res = await authFetch(`/api/workspaces/${workspaceId}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to delete workspace');
+      }
+
+      setToast({
+        type: 'success',
+        message: `Workspace "${wsName}" deleted successfully.`,
+      });
+
+      const remaining = workspaces.filter((w) => w.id !== workspaceId);
+      if (remaining.length > 0) {
+        if (currentWorkspaceId === workspaceId) {
+          setCurrentWorkspaceId(remaining[0].id);
+          setSelectedVersion('current');
+        }
+        loadWorkspaces();
+      } else {
+        await handleCreateWorkspaceSubmit('New Architecture Workspace', '', 'context');
+      }
+
+      return true;
+    } catch (err: any) {
+      console.error('Failed to delete workspace', err);
+      setToast({
+        type: 'error',
+        message: `Failed to delete workspace: ${err?.message || 'Unknown error'}`,
+      });
+      throw err;
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 select-none">
       {/* Top Navigation Bar */}
@@ -1207,6 +1256,16 @@ export function App() {
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
               >
                 <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {canDelete && workspaces.length > 0 && (
+              <button
+                onClick={() => setIsDeleteWorkspaceModalOpen(true)}
+                title={`Delete Workspace "${workspaceInfo?.name || 'Workspace'}"`}
+                className="p-1.5 bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 rounded-lg border border-slate-700 hover:border-rose-800/60 transition shrink-0 cursor-pointer flex items-center justify-center"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -1950,6 +2009,14 @@ export function App() {
         isOpen={isCreateWorkspaceModalOpen}
         onClose={() => setIsCreateWorkspaceModalOpen(false)}
         onCreate={handleCreateWorkspaceSubmit}
+      />
+
+      <DeleteWorkspaceModal
+        isOpen={isDeleteWorkspaceModalOpen}
+        onClose={() => setIsDeleteWorkspaceModalOpen(false)}
+        onDelete={handleDeleteWorkspaceSubmit}
+        workspaces={workspaces}
+        currentWorkspaceId={currentWorkspaceId}
       />
 
       <RestoreVersionModal
