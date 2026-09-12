@@ -48,7 +48,7 @@ export function computeBoundaryNodes(
 
     // Child boundary nodes that are nested inside this boundary
     const nestedBoundaryChildren = Array.from(createdBoundaryNodesMap.values()).filter(
-      (bn) => (bn.data as any)?.parentBoundaryId === boundary.id
+      (bn) => (bn.data as any)?.parentBoundaryId === boundary.id || childIdSet.has((bn.data as any)?.id)
     );
 
     if (leafChildren.length === 0 && nestedBoundaryChildren.length === 0) {

@@ -42,6 +42,8 @@ export interface Relationship {
   properties: Record<string, string>;
   url?: string | null;
   lineRange?: { startLine: number; endLine: number };
+  implied?: boolean;
+  linkedRelationshipId?: string;
 }
 
 export interface BaseElement {
@@ -155,6 +157,8 @@ export interface Model {
   softwareSystems: SoftwareSystem[];
   deploymentNodes: DeploymentNode[];
   relationships: Relationship[];
+  lineRange?: { startLine: number; endLine: number };
+  impliedRelationships?: boolean | string;
 }
 
 export interface Workspace {
@@ -163,6 +167,7 @@ export interface Workspace {
   description: string;
   version?: string | null;
   defaultView?: string | null;
+  impliedRelationships?: boolean | string;
   model: Model;
   views: View[];
   elementStyles: ElementStyle[];

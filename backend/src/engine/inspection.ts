@@ -238,11 +238,12 @@ export function inspectWorkspace(ws: Workspace): InspectionFinding[] {
     // Rule: Structurizr Implied Relationship Conflict
     // If an explicit higher-level relationship exists between A and B, but lower-level child components/containers
     // also have relationships that imply A -> B, official Structurizr throws an error when '!impliedRelationships false' is not set.
-    for (const otherRel of ws.model.relationships) {
-      if (otherRel.id === rel.id) continue;
-      const otherSrc = elementMap.get(otherRel.sourceId) || (otherRel.sourceIdentifier ? identifierMap.get(otherRel.sourceIdentifier) : undefined);
-      const otherDest = elementMap.get(otherRel.destinationId) || (otherRel.destinationIdentifier ? identifierMap.get(otherRel.destinationIdentifier) : undefined);
-      if (!otherSrc || !otherDest) continue;
+    if (ws.impliedRelationships !== false && !rel.implied) {
+      for (const otherRel of ws.model.relationships) {
+        if (otherRel.id === rel.id || otherRel.implied) continue;
+        const otherSrc = elementMap.get(otherRel.sourceId) || (otherRel.sourceIdentifier ? identifierMap.get(otherRel.sourceIdentifier) : undefined);
+        const otherDest = elementMap.get(otherRel.destinationId) || (otherRel.destinationIdentifier ? identifierMap.get(otherRel.destinationIdentifier) : undefined);
+        if (!otherSrc || !otherDest) continue;
 
       const srcIsHigher = otherSrc.ancestors.includes(srcMeta.id);
       const srcIsSame = otherSrc.id === srcMeta.id;
@@ -262,6 +263,7 @@ export function inspectWorkspace(ws: Workspace): InspectionFinding[] {
       }
     }
   }
+}
 
   // Inspect People
   for (const p of ws.model.people) {

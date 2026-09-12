@@ -1,3 +1,4 @@
+name: openc4
 services:
   openc4:
     build: .

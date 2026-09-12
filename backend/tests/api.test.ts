@@ -81,6 +81,49 @@ describe('API Endpoints', () => {
     expect(data.canvas.nodes.some((n: any) => n.data.name === 'Database')).toBe(false);
   });
 
+  it('creates and updates relationships via /api/workspaces/:id/relationships', async () => {
+    // 1. Create a new relationship
+    const createRes = await app.request('/api/workspaces/1/relationships', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'create',
+        dsl: DEFAULT_SAMPLE_DSL,
+        sourceId: 'singlePageApplication',
+        targetId: 'mainframeBankingSystem',
+        description: 'Direct mainframe sync',
+        technology: 'HTTPS',
+        viewKey: 'Containers'
+      })
+    });
+    expect(createRes.status).toBe(200);
+    const createData = await createRes.json();
+    expect(createData.success).toBe(true);
+    expect(createData.dsl).toContain('singlePageApplication -> mainframeBankingSystem "Direct mainframe sync" "HTTPS"');
+    expect(createData.canvas).toBeDefined();
+    expect(createData.canvas.edges.some((e: any) => e.label === 'Direct mainframe sync')).toBe(true);
+
+    // 2. Update the newly created relationship (change description and technology)
+    const relId = createData.relationship.id;
+    const updateRes = await app.request('/api/workspaces/1/relationships', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update',
+        dsl: createData.dsl,
+        edgeId: relId,
+        description: 'Updated mainframe sync',
+        technology: 'gRPC',
+        viewKey: 'Containers'
+      })
+    });
+    expect(updateRes.status).toBe(200);
+    const updateData = await updateRes.json();
+    expect(updateData.success).toBe(true);
+    expect(updateData.dsl).toContain('singlePageApplication -> mainframeBankingSystem "Updated mainframe sync" "gRPC"');
+    expect(updateData.canvas.edges.some((e: any) => e.label === 'Updated mainframe sync')).toBe(true);
+  });
+
   it('handles MCP tools/list', async () => {
     const res = await app.request('/mcp', {
       method: 'POST',

@@ -9,8 +9,10 @@ import {
   BackgroundVariant,
   Panel,
   MarkerType,
+  ConnectionMode,
+  reconnectEdge,
 } from '@xyflow/react';
-import type { Node, Edge } from '@xyflow/react';
+import type { Node, Edge, Connection } from '@xyflow/react';
 import Editor from '@monaco-editor/react';
 import {
   Server,
@@ -29,6 +31,7 @@ import {
   Cpu,
   Home,
   ChevronRight,
+  Link2,
 } from 'lucide-react';
 
 import C4Node from './components/C4Node';
@@ -47,6 +50,7 @@ import { PublishVersionModal } from './components/PublishVersionModal';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
 import { DeleteWorkspaceModal } from './components/DeleteWorkspaceModal';
 import { RestoreVersionModal } from './components/RestoreVersionModal';
+import { RelationshipModal } from './components/RelationshipModal';
 import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { FileTree } from './components/FileTree';
@@ -76,6 +80,7 @@ const defaultEdgeOptions = {
     stroke: '#94a3b8',
     strokeWidth: 2,
   },
+  reconnectable: true,
 };
 
 interface WorkspaceSummary {
@@ -140,7 +145,7 @@ export function App() {
   const [openTabs, setOpenTabs] = useState<string[]>(['workspace.dsl']);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
   const [folders, setFolders] = useState<string[]>([]);
-  const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState<boolean>(false);
+  const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState<boolean>(true);
 
   // Views & Canvas
   const [availableViews, setAvailableViews] = useState<ViewOption[]>([]);
@@ -173,6 +178,16 @@ export function App() {
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Relationship Modal states
+  const [isRelationshipModalOpen, setIsRelationshipModalOpen] = useState(false);
+  const [relationshipModalMode, setRelationshipModalMode] = useState<'create' | 'edit' | 'reconnect'>('create');
+  const [relModalSourceNode, setRelModalSourceNode] = useState<Node | null>(null);
+  const [relModalTargetNode, setRelModalTargetNode] = useState<Node | null>(null);
+  const [relModalEdge, setRelModalEdge] = useState<Edge | null>(null);
+  const [relModalDescription, setRelModalDescription] = useState<string>('');
+  const [relModalTechnology, setRelModalTechnology] = useState<string>('');
+  const [isSavingRelationship, setIsSavingRelationship] = useState(false);
+
   // Dialog modal states
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isCreateWorkspaceModalOpen, setIsCreateWorkspaceModalOpen] = useState(false);
@@ -195,8 +210,7 @@ export function App() {
     return 50;
   });
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [isMaximized, setIsMaximized] = useState<boolean>(false);
-  const lastDslWidthRef = useRef<number>(50);
+  const [focusMode, setFocusMode] = useState<'split' | 'code' | 'diagram'>('split');
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -209,7 +223,7 @@ export function App() {
       const percentage = (newWidthPx / rect.width) * 100;
       const clamped = Math.min(Math.max(percentage, 15), 85);
       setDslWidth(clamped);
-      setIsMaximized(false);
+      setFocusMode('split');
     };
 
     const handleMouseUp = () => {
@@ -225,20 +239,28 @@ export function App() {
   }, [isDragging]);
 
   useEffect(() => {
-    if (!isMaximized) {
+    if (focusMode === 'split') {
       localStorage.setItem('openc4_dsl_width', dslWidth.toString());
     }
-  }, [dslWidth, isMaximized]);
+  }, [dslWidth, focusMode]);
 
-  const toggleMaximize = () => {
-    if (isMaximized) {
-      setDslWidth(lastDslWidthRef.current || 50);
-      setIsMaximized(false);
-    } else {
-      lastDslWidthRef.current = dslWidth;
-      setDslWidth(80);
-      setIsMaximized(true);
-    }
+  // Allow Escape key to restore split mode when focused
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && focusMode !== 'split') {
+        setFocusMode('split');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusMode]);
+
+  const toggleFocusCode = () => {
+    setFocusMode((prev) => (prev === 'code' ? 'split' : 'code'));
+  };
+
+  const toggleFocusDiagram = () => {
+    setFocusMode((prev) => (prev === 'diagram' ? 'split' : 'diagram'));
   };
 
   // Load list of workspaces
@@ -273,9 +295,19 @@ export function App() {
       const boundaries = canvas.boundaries || (canvas.boundary ? [canvas.boundary] : []);
       boundariesRef.current = boundaries;
 
-      const boundaryNodes = computeBoundaryNodes(rawNodes, boundaries);
-      const allNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...rawNodes] : rawNodes;
-      const updatedEdges = updateEdgesClosestHandles(allNodes, rawEdges);
+      let allNodes: any[];
+      let updatedEdges: any[];
+
+      if (canvas.hasLayout === false && rawNodes.length > 0) {
+        const dir = (canvas.autoLayout || 'tb').toUpperCase() === 'LR' ? 'LR' : 'TB';
+        const layouted = getLayoutedElements(rawNodes, rawEdges, dir, boundaries);
+        allNodes = layouted.nodes;
+        updatedEdges = layouted.edges;
+      } else {
+        const boundaryNodes = computeBoundaryNodes(rawNodes, boundaries);
+        allNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...rawNodes] : rawNodes;
+        updatedEdges = updateEdgesClosestHandles(allNodes, rawEdges);
+      }
 
       setNodes(allNodes);
       setEdges(updatedEdges);
@@ -997,6 +1029,176 @@ export function App() {
     [setNodes, setEdges]
   );
 
+  // Handle connector dragging to create a relationship
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!canEdit) {
+        setToast({ type: 'error', message: 'Read-only access: Cannot create relationships' });
+        return;
+      }
+      if (!connection.source || !connection.target || connection.source === connection.target) {
+        return;
+      }
+      const sNode = nodes.find((n) => n.id === connection.source);
+      const tNode = nodes.find((n) => n.id === connection.target);
+      if (!sNode || !tNode || sNode.type === 'c4Boundary' || tNode.type === 'c4Boundary') {
+        return;
+      }
+      setRelModalSourceNode(sNode);
+      setRelModalTargetNode(tNode);
+      setRelModalEdge(null);
+      setRelModalDescription('');
+      setRelModalTechnology('');
+      setRelationshipModalMode('create');
+      setIsRelationshipModalOpen(true);
+    },
+    [canEdit, nodes]
+  );
+
+  // Handle reconnecting an existing relationship to another element
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (!canEdit) {
+        setToast({ type: 'error', message: 'Read-only access: Cannot edit relationships' });
+        return;
+      }
+      if (!newConnection.source || !newConnection.target || newConnection.source === newConnection.target) {
+        return;
+      }
+      const sNode = nodes.find((n) => n.id === newConnection.source);
+      const tNode = nodes.find((n) => n.id === newConnection.target);
+      if (!sNode || !tNode || sNode.type === 'c4Boundary' || tNode.type === 'c4Boundary') {
+        return;
+      }
+      if (newConnection.source === oldEdge.source && newConnection.target === oldEdge.target) {
+        setEdges((els) => reconnectEdge(oldEdge, newConnection, els));
+        return;
+      }
+      setRelModalSourceNode(sNode);
+      setRelModalTargetNode(tNode);
+      setRelModalEdge(oldEdge);
+      const edgeData = (oldEdge.data as any) || {};
+      setRelModalDescription(edgeData.description || (typeof oldEdge.label === 'string' ? oldEdge.label : ''));
+      setRelModalTechnology(edgeData.technology || '');
+      setRelationshipModalMode('reconnect');
+      setIsRelationshipModalOpen(true);
+    },
+    [canEdit, nodes, setEdges]
+  );
+
+  // Double-click an edge to edit its description and technology
+  const onEdgeDoubleClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      if (!canEdit) return;
+      const sNode = nodes.find((n) => n.id === edge.source);
+      const tNode = nodes.find((n) => n.id === edge.target);
+      setRelModalSourceNode(sNode || null);
+      setRelModalTargetNode(tNode || null);
+      setRelModalEdge(edge);
+      const edgeData = (edge.data as any) || {};
+      setRelModalDescription(edgeData.description || (typeof edge.label === 'string' ? edge.label : ''));
+      setRelModalTechnology(edgeData.technology || '');
+      setRelationshipModalMode('edit');
+      setIsRelationshipModalOpen(true);
+    },
+    [canEdit, nodes]
+  );
+
+  // Open edit modal for currently selected edge
+  const handleEditSelectedEdge = useCallback(() => {
+    const selectedEdge = edges.find((e) => e.selected);
+    if (!selectedEdge) return;
+    const sNode = nodes.find((n) => n.id === selectedEdge.source);
+    const tNode = nodes.find((n) => n.id === selectedEdge.target);
+    setRelModalSourceNode(sNode || null);
+    setRelModalTargetNode(tNode || null);
+    setRelModalEdge(selectedEdge);
+    const edgeData = (selectedEdge.data as any) || {};
+    setRelModalDescription(edgeData.description || (typeof selectedEdge.label === 'string' ? selectedEdge.label : ''));
+    setRelModalTechnology(edgeData.technology || '');
+    setRelationshipModalMode('edit');
+    setIsRelationshipModalOpen(true);
+  }, [edges, nodes]);
+
+  // Execute relationship creation or update via API
+  const handleSaveRelationship = async (data: {
+    sourceId: string;
+    targetId: string;
+    description: string;
+    technology: string;
+  }) => {
+    if (!canEdit || !currentWorkspaceId) return;
+    setIsSavingRelationship(true);
+
+    try {
+      const isCreate = relationshipModalMode === 'create';
+      const edgeId = (relModalEdge?.data as any)?.id || relModalEdge?.id.replace(/^edge_/, '');
+
+      const payload = {
+        action: isCreate ? 'create' : 'update',
+        dsl: dslCode,
+        viewKey: currentViewKey,
+        sourceId: data.sourceId,
+        targetId: data.targetId,
+        description: data.description,
+        technology: data.technology,
+        ...(isCreate ? {} : { edgeId }),
+      };
+
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/relationships`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const resData = await res.json();
+      if (resData.success) {
+        setDslCode(resData.dsl);
+        const currentActive = activeFileRef.current;
+        const updatedFiles = { ...filesRef.current, [currentActive]: resData.dsl };
+        filesRef.current = updatedFiles;
+        setFiles(updatedFiles);
+        setDirtyFiles((prev) => new Set(prev).add(currentActive));
+
+        setParseError(null);
+        if (resData.canvas) {
+          applyCanvasData(resData.canvas, currentViewKey);
+        }
+        setFindings(resData.findings || []);
+        setIsRelationshipModalOpen(false);
+        setToast({
+          type: 'success',
+          message: isCreate
+            ? 'Relationship added to DSL'
+            : relationshipModalMode === 'reconnect'
+            ? 'Relationship reconnected in DSL'
+            : 'Relationship updated in DSL',
+        });
+      } else {
+        setToast({
+          type: 'error',
+          message: `Failed to ${isCreate ? 'create' : 'update'} relationship: ${resData.detail || 'Unknown error'}`,
+        });
+      }
+    } catch (err: any) {
+      console.error('Relationship save error', err);
+      setToast({
+        type: 'error',
+        message: `Error: ${err.message}`,
+      });
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  };
+
+  // Delete relationship from inside edit modal
+  const handleDeleteRelationshipFromModal = () => {
+    if (!relModalEdge) return;
+    const edgeToDelete = relModalEdge;
+    setIsRelationshipModalOpen(false);
+    requestDelete([], [edgeToDelete]);
+  };
+
   // Load Catalog data (latest component versions for current workspace)
   const loadCatalog = useCallback((wsId?: number) => {
     const targetWsId = wsId ?? currentWorkspaceId;
@@ -1541,8 +1743,10 @@ export function App() {
       >
         {/* Left Pane: Tabs for DSL Editor and Enterprise Catalog */}
         <div
-          style={{ width: `${dslWidth}%` }}
-          className="flex flex-col bg-slate-950 shrink-0 min-w-[240px] border-r border-slate-800/80"
+          style={{ width: focusMode === 'code' ? '100%' : `${dslWidth}%` }}
+          className={`flex flex-col bg-slate-950 shrink-0 ${
+            focusMode === 'diagram' ? 'hidden' : 'flex'
+          } ${focusMode === 'code' ? 'w-full' : 'min-w-[240px] border-r border-slate-800/80'}`}
         >
           <div className="px-3 py-1.5 bg-slate-900/60 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-slate-400 gap-2">
             {/* Panel Tabs */}
@@ -1582,7 +1786,7 @@ export function App() {
               </button>
             </div>
 
-            {/* Width Controls & Maximize */}
+            {/* Width Controls & Focus Code Toggle */}
             <div className="flex items-center gap-2 overflow-hidden">
               {leftPanelTab === 'dsl' && (
                 <>
@@ -1591,63 +1795,60 @@ export function App() {
                 </>
               )}
 
-              {/* Quick Preset Width Controls */}
-              <div className="flex items-center gap-0.5 bg-slate-800/80 rounded-md p-0.5 border border-slate-700/50 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDslWidth(35);
-                    setIsMaximized(false);
-                  }}
-                  className={`px-1.5 py-0.5 rounded transition font-medium ${
-                    Math.round(dslWidth) === 35 && !isMaximized
-                      ? 'bg-blue-600 text-white font-bold shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Compact panel (35% width)"
-                >
-                  35%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDslWidth(50);
-                    setIsMaximized(false);
-                  }}
-                  className={`px-1.5 py-0.5 rounded transition font-medium ${
-                    Math.round(dslWidth) === 50 && !isMaximized
-                      ? 'bg-blue-600 text-white font-bold shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Half split (50% width)"
-                >
-                  50%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDslWidth(70);
-                    setIsMaximized(false);
-                  }}
-                  className={`px-1.5 py-0.5 rounded transition font-medium ${
-                    Math.round(dslWidth) === 70 && !isMaximized
-                      ? 'bg-blue-600 text-white font-bold shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Wide panel (70% width)"
-                >
-                  70%
-                </button>
-              </div>
+              {/* Quick Preset Width Controls (when split mode) */}
+              {focusMode === 'split' && (
+                <div className="flex items-center gap-0.5 bg-slate-800/80 rounded-md p-0.5 border border-slate-700/50 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setDslWidth(35)}
+                    className={`px-1.5 py-0.5 rounded transition font-medium ${
+                      Math.round(dslWidth) === 35
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Compact panel (35% width)"
+                  >
+                    35%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDslWidth(50)}
+                    className={`px-1.5 py-0.5 rounded transition font-medium ${
+                      Math.round(dslWidth) === 50
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Half split (50% width)"
+                  >
+                    50%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDslWidth(70)}
+                    className={`px-1.5 py-0.5 rounded transition font-medium ${
+                      Math.round(dslWidth) === 70
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Wide panel (70% width)"
+                  >
+                    70%
+                  </button>
+                </div>
+              )}
 
-              {/* Maximize / Restore Toggle */}
+              {/* Focus / Restore Split Toggle */}
               <button
                 type="button"
-                onClick={toggleMaximize}
-                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 transition"
-                title={isMaximized ? "Restore default split layout" : "Expand panel (80% width)"}
+                onClick={toggleFocusCode}
+                className={`p-1 rounded transition border ${
+                  focusMode === 'code'
+                    ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 hover:bg-blue-600/40'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700/60'
+                }`}
+                title={focusMode === 'code' ? 'Restore split view (Esc)' : 'Focus Code - Full Screen'}
               >
-                {isMaximized ? (
+                {focusMode === 'code' ? (
                   <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
                 ) : (
                   <Maximize2 className="w-3.5 h-3.5" />
@@ -1792,29 +1993,30 @@ export function App() {
           )}
         </div>
 
-        {/* Resizable Divider Handle */}
-        <div
-          onMouseDown={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDoubleClick={() => {
-            setDslWidth(50);
-            setIsMaximized(false);
-          }}
-          title="Drag to resize DSL editor. Double-click to reset to 50%."
-          className={`relative flex items-center justify-center w-2 cursor-col-resize select-none transition-colors group z-20 shrink-0 ${
-            isDragging ? 'bg-blue-500' : 'bg-slate-800 hover:bg-blue-500/80'
-          }`}
-        >
-          {/* Expanded hit area */}
-          <div className="absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize" />
-          <div className="flex flex-col gap-1 items-center justify-center pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
-            <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
-            <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
-            <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
+        {/* Resizable Divider Handle (only visible in split mode) */}
+        {focusMode === 'split' && (
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDoubleClick={() => {
+              setDslWidth(50);
+            }}
+            title="Drag to resize DSL editor. Double-click to reset to 50%."
+            className={`relative flex items-center justify-center w-2 cursor-col-resize select-none transition-colors group z-20 shrink-0 ${
+              isDragging ? 'bg-blue-500' : 'bg-slate-800 hover:bg-blue-500/80'
+            }`}
+          >
+            {/* Expanded hit area */}
+            <div className="absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize" />
+            <div className="flex flex-col gap-1 items-center justify-center pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
+              <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
+              <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
+              <div className="w-1 h-1 rounded-full bg-slate-400 group-hover:bg-white" />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Global drag overlay to prevent Monaco and ReactFlow from swallowing mouse events */}
         {isDragging && (
@@ -1822,7 +2024,11 @@ export function App() {
         )}
 
         {/* Right Pane: Interactive React Flow Canvas */}
-        <div className="flex-1 flex flex-col relative bg-[#0b1120] min-w-[240px] overflow-hidden">
+        <div
+          className={`flex-1 flex flex-col relative bg-[#0b1120] overflow-hidden ${
+            focusMode === 'code' ? 'hidden' : 'flex'
+          } ${focusMode === 'diagram' ? 'w-full' : 'min-w-[240px]'}`}
+        >
           {/* View Toolbar & Breadcrumb Navigation */}
           <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl max-w-[calc(100%-24px)] overflow-x-auto">
             {/* Home button */}
@@ -1890,6 +2096,44 @@ export function App() {
               Auto-Layout (LR)
             </button>
 
+            <div className="h-3.5 w-px bg-slate-700 shrink-0" />
+
+            {/* Focus / Restore Diagram Toggle */}
+            <button
+              type="button"
+              onClick={toggleFocusDiagram}
+              className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition font-medium shrink-0 cursor-pointer border ${
+                focusMode === 'diagram'
+                  ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 hover:bg-blue-600/40'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+              }`}
+              title={focusMode === 'diagram' ? 'Restore split view (Esc)' : 'Focus Diagram - Full Screen'}
+            >
+              {focusMode === 'diagram' ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline text-[11px]">Restore</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline text-[11px]">Focus</span>
+                </>
+              )}
+            </button>
+
+            {/* Edit Relationship button when an edge is selected */}
+            {canEdit && edges.some((e) => e.selected) && (
+              <button
+                onClick={handleEditSelectedEdge}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/40 rounded-lg transition font-medium cursor-pointer"
+                title="Edit selected relationship"
+              >
+                <Link2 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Edit Relationship</span>
+              </button>
+            )}
+
             {/* Delete button when nodes or edges are selected */}
             {canEdit && (nodes.some((n) => n.selected && n.type !== 'c4Boundary') || edges.some((e) => e.selected)) && (
               <>
@@ -1920,12 +2164,18 @@ export function App() {
             nodes={nodes}
             edges={edges}
             defaultEdgeOptions={defaultEdgeOptions}
+            connectionMode={ConnectionMode.Loose}
+            edgesReconnectable={canEdit}
+            reconnectRadius={20}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onBeforeDelete={onBeforeDelete}
             onNodeDoubleClick={onNodeDoubleClick}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            onReconnect={onReconnect}
+            onEdgeDoubleClick={onEdgeDoubleClick}
             nodeTypes={nodeTypes}
             panActivationKeyCode={null}
             fitView
@@ -1949,13 +2199,26 @@ export function App() {
               position="bottom-center"
               className="text-[11px] text-slate-400 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 shadow-lg"
             >
-              Tip: Double-click a System or Container to drill down • Click &apos;Home&apos; to return to top-level view
+              Tip: Drag connector handles to create relationships • Drag edge ends to reconnect • Double-click System/Container to drill down
             </Panel>
           </ReactFlow>
         </div>
       </div>
 
       {/* Modals & Drawers */}
+      <RelationshipModal
+        isOpen={isRelationshipModalOpen}
+        mode={relationshipModalMode}
+        onClose={() => setIsRelationshipModalOpen(false)}
+        onSave={handleSaveRelationship}
+        onDelete={handleDeleteRelationshipFromModal}
+        sourceNode={relModalSourceNode}
+        targetNode={relModalTargetNode}
+        initialDescription={relModalDescription}
+        initialTechnology={relModalTechnology}
+        isSaving={isSavingRelationship}
+      />
+
       <ConfirmDeleteModal
         isOpen={isConfirmDeleteOpen}
         onClose={() => {

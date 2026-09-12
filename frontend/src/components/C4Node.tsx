@@ -177,14 +177,14 @@ const C4Node = ({ data, selected }: NodeProps) => {
         position={Position.Top}
         id="top"
         style={isPerson ? { top: '-28px' } : undefined}
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors z-20"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
       <Handle
         type="source"
         position={Position.Top}
         id="top"
         style={isPerson ? { top: '-28px' } : undefined}
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors z-20"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
 
       {/* Right handles */}
@@ -192,13 +192,13 @@ const C4Node = ({ data, selected }: NodeProps) => {
         type="target"
         position={Position.Right}
         id="right"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
 
       {/* Bottom handles */}
@@ -206,13 +206,13 @@ const C4Node = ({ data, selected }: NodeProps) => {
         type="target"
         position={Position.Bottom}
         id="bottom"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
 
       {/* Left handles */}
@@ -220,13 +220,13 @@ const C4Node = ({ data, selected }: NodeProps) => {
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
       <Handle
         type="source"
         position={Position.Left}
         id="left"
-        className="!w-3 !h-3 !bg-slate-300 hover:!bg-cyan-400 !border-2 !border-slate-900 transition-colors"
+        className="!w-3.5 !h-3.5 !bg-slate-300 hover:!bg-cyan-400 hover:scale-125 !border-2 !border-slate-900 transition-all cursor-crosshair z-20"
       />
 
       <div className="relative z-10">

@@ -43,7 +43,7 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
     ],
 
     directives: [
-      '!include', '!ref', '!plugin', '!docs', '!adrs', '!script', '!identifiers', '!element', '!relationship'
+      '!include', '!ref', '!plugin', '!docs', '!adrs', '!script', '!identifiers', '!element', '!relationship', '!impliedRelationships'
     ],
 
     typeKeywords: [
@@ -59,7 +59,7 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
         [/\/\/.*$/, 'comment'],
         [/#.*$/, 'comment'],
         [/\/\*/, 'comment', '@comment'],
-        [/!(?:include|ref|plugin|docs|adrs|script|identifiers|element|relationship)\b/, 'keyword.directive'],
+        [/!(?:include|ref|plugin|docs|adrs|script|identifiers|element|relationship|impliedRelationships)\b/i, 'keyword.directive'],
         [/"([^"\\]|\\.)*"/, 'string'],
         [/'([^'\\]|\\.)*'/, 'string'],
         [/-\/>/, 'operator.remove_arrow'],
@@ -96,6 +96,18 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
       };
 
       const suggestions = [
+        {
+          label: '!impliedRelationships false',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: '!impliedRelationships false',
+          range,
+        },
+        {
+          label: '!impliedRelationships true',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: '!impliedRelationships true',
+          range,
+        },
         {
           label: '!include',
           kind: monaco.languages.CompletionItemKind.Snippet,

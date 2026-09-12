@@ -11,7 +11,7 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   // Build relationships lookup by source ID
   const relsBySource: Record<string, any[]> = {};
   for (const rel of ws.model.relationships) {
-    const rJson = {
+    const rJson: Record<string, any> = {
       id: rel.id,
       sourceId: rel.sourceId,
       destinationId: rel.destinationId,
@@ -20,6 +20,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       interactionStyle: rel.interactionStyle,
       tags: rel.tags.length > 0 ? rel.tags.join(',') : 'Relationship'
     };
+    if (rel.linkedRelationshipId) {
+      rJson.linkedRelationshipId = rel.linkedRelationshipId;
+    }
     if (!relsBySource[rel.sourceId]) {
       relsBySource[rel.sourceId] = [];
     }
@@ -210,7 +213,15 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
           elements: elementStylesJson,
           relationships: relStylesJson
         },
-        themes: ws.themes
+        themes: ws.themes,
+        ...(ws.impliedRelationships !== undefined && ws.impliedRelationships !== false
+          ? {
+              impliedRelationshipsStrategy:
+                typeof ws.impliedRelationships === 'string'
+                  ? ws.impliedRelationships
+                  : 'CreateImpliedRelationshipsUnlessSameRelationshipExistsStrategy'
+            }
+          : {})
       }
     }
   };
@@ -1103,6 +1114,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             label: rel.description,
             type: 'smoothstep',
             data: {
+              id: rel.id,
+              relationshipId: rel.id,
+              sourceId: rel.sourceId,
+              destinationId: rel.destinationId,
+              sourceIdentifier: rel.sourceIdentifier,
+              destinationIdentifier: rel.destinationIdentifier,
+              description: rel.description,
               technology: rel.technology,
               interactionStyle: rel.interactionStyle
             }
@@ -1125,6 +1143,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
               label: rel.description,
               type: 'smoothstep',
               data: {
+                id: rel.id,
+                relationshipId: rel.id,
+                sourceId: rel.sourceId,
+                destinationId: rel.destinationId,
+                sourceIdentifier: rel.sourceIdentifier,
+                destinationIdentifier: rel.destinationIdentifier,
+                description: rel.description,
                 technology: rel.technology,
                 interactionStyle: rel.interactionStyle
               }
@@ -1137,6 +1162,10 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     // Standard views: context, container, component, landscape
     const findVisibleRepresentative = (elemId: string): string | null => {
       if (visibleElementIds.has(elemId)) return elemId;
+
+      if (ws.impliedRelationships === false) {
+        return null;
+      }
 
       // In container or component views, components roll up to container
       const contId = getContainerId(elemId);
@@ -1151,7 +1180,14 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
     const edgeSeen = new Set<string>();
 
-    for (const rel of ws.model.relationships) {
+    // Sort so direct relationships between visible elements come before rolled-up ones
+    const sortedRels = [...ws.model.relationships].sort((a, b) => {
+      const aDirect = visibleElementIds.has(a.sourceId) && visibleElementIds.has(a.destinationId) ? 1 : 0;
+      const bDirect = visibleElementIds.has(b.sourceId) && visibleElementIds.has(b.destinationId) ? 1 : 0;
+      return bDirect - aDirect;
+    });
+
+    for (const rel of sortedRels) {
       const src = findVisibleRepresentative(rel.sourceId);
       const dst = findVisibleRepresentative(rel.destinationId);
 
@@ -1172,6 +1208,10 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           }
         }
 
+        const isDirect = rel.sourceId === src && rel.destinationId === dst;
+        const isImplied = Boolean(rel.implied || !isDirect);
+        const linkedId = rel.linkedRelationshipId || (!isDirect ? rel.id : undefined);
+
         edges.push({
           id: `edge_${rel.id}`,
           source: src,
@@ -1185,8 +1225,17 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             strokeDasharray: isDashed ? '5,5' : undefined
           },
           data: {
+            id: rel.id,
+            relationshipId: rel.id,
+            sourceId: rel.sourceId,
+            destinationId: rel.destinationId,
+            sourceIdentifier: rel.sourceIdentifier,
+            destinationIdentifier: rel.destinationIdentifier,
+            description: rel.description,
             technology: rel.technology,
-            interactionStyle: rel.interactionStyle
+            interactionStyle: rel.interactionStyle,
+            implied: isImplied,
+            linkedRelationshipId: linkedId
           }
         });
       }
@@ -1204,6 +1253,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     boundaries,
     nodes,
     edges,
+    hasLayout: Boolean(view && Object.keys(view.layoutCoordinates || {}).length > 0),
     availableViews: ws.views.map((v) => ({
       key: v.key,
       type: v.viewType,

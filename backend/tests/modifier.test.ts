@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deleteFromDsl } from '../src/engine/modifier.js';
+import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl } from '../src/engine/modifier.js';
 import { parseDsl } from '../src/engine/parser.js';
 
 const SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking System architecture model" {
@@ -123,5 +123,115 @@ describe('deleteFromDsl', () => {
     const newParsed = parseDsl(result.dsl);
     expect(newParsed.model.softwareSystems.length).toBe(2);
     expect(newParsed.views.length).toBe(0);
+  });
+});
+
+describe('addRelationshipToDsl', () => {
+  it('adds a relationship between elements with description and technology', () => {
+    const result = addRelationshipToDsl(SAMPLE_DSL, {
+      sourceId: 'singlePageApplication',
+      targetId: 'mainframeBankingSystem',
+      description: 'Queries status directly',
+      technology: 'HTTPS'
+    });
+
+    expect(result.dsl).toContain('singlePageApplication -> mainframeBankingSystem "Queries status directly" "HTTPS"');
+    const newParsed = parseDsl(result.dsl);
+    const addedRel = newParsed.model.relationships.find(
+      (r) => r.description === 'Queries status directly'
+    );
+    expect(addedRel).toBeDefined();
+    expect(addedRel?.technology).toBe('HTTPS');
+  });
+
+  it('adds a relationship when no relationships exist in model', () => {
+    const NO_REL_DSL = `workspace "Test" {
+    model {
+        user = person "User"
+        app = softwareSystem "App"
+    }
+    views {
+        systemContext app "SystemContext" {
+            include *
+        }
+    }
+}`;
+
+    const result = addRelationshipToDsl(NO_REL_DSL, {
+      sourceId: 'user',
+      targetId: 'app',
+      description: 'Interacts with',
+      technology: 'HTTPS'
+    });
+
+    expect(result.dsl).toContain('user -> app "Interacts with" "HTTPS"');
+    const parsed = parseDsl(result.dsl);
+    expect(parsed.model.relationships.length).toBe(1);
+    expect(parsed.model.relationships[0].description).toBe('Interacts with');
+  });
+
+  it('resolves elements by name or id', () => {
+    const parsed = parseDsl(SAMPLE_DSL);
+    const customer = parsed.model.people.find((p) => p.name === 'Personal Banking Customer');
+    const db = parsed.model.softwareSystems[0].containers.find((c) => c.name === 'Database');
+
+    const result = addRelationshipToDsl(SAMPLE_DSL, {
+      sourceId: customer!.id,
+      targetId: db!.id,
+      description: 'Inspects directly'
+    });
+
+    expect(result.dsl).toContain('customer -> database "Inspects directly"');
+    const newParsed = parseDsl(result.dsl);
+    expect(newParsed.model.relationships.some((r) => r.description === 'Inspects directly')).toBe(true);
+  });
+});
+
+describe('updateRelationshipInDsl', () => {
+  it('reconnects an edge to a new target destination', () => {
+    const parsed = parseDsl(SAMPLE_DSL);
+    const rel = parsed.model.relationships.find(
+      (r) => r.description === 'Makes API calls to'
+    );
+    expect(rel).toBeDefined();
+
+    // Reconnect singlePageApplication from apiApplication to mainframeBankingSystem
+    const result = updateRelationshipInDsl(SAMPLE_DSL, {
+      edgeId: rel!.id,
+      targetId: 'mainframeBankingSystem'
+    });
+
+    expect(result.dsl).toContain('singlePageApplication -> mainframeBankingSystem "Makes API calls to" "JSON/HTTPS"');
+    expect(result.dsl).not.toContain('singlePageApplication -> apiApplication "Makes API calls to" "JSON/HTTPS"');
+
+    const newParsed = parseDsl(result.dsl);
+    const updated = newParsed.model.relationships.find(
+      (r) => r.description === 'Makes API calls to'
+    );
+    expect(updated).toBeDefined();
+    expect(updated?.destinationIdentifier).toBe('mainframeBankingSystem');
+  });
+
+  it('updates description and technology of an existing relationship', () => {
+    const parsed = parseDsl(SAMPLE_DSL);
+    const rel = parsed.model.relationships.find(
+      (r) => r.description === 'Reads from and writes to'
+    );
+    expect(rel).toBeDefined();
+
+    const result = updateRelationshipInDsl(SAMPLE_DSL, {
+      edgeId: rel!.id,
+      description: 'Executes SQL transactions on',
+      technology: 'PostgreSQL Protocol'
+    });
+
+    expect(result.dsl).toContain('apiApplication -> database "Executes SQL transactions on" "PostgreSQL Protocol"');
+    expect(result.dsl).not.toContain('Reads from and writes to');
+
+    const newParsed = parseDsl(result.dsl);
+    const updated = newParsed.model.relationships.find(
+      (r) => r.description === 'Executes SQL transactions on'
+    );
+    expect(updated?.technology).toBe('PostgreSQL Protocol');
   });
 });

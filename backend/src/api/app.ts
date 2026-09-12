@@ -25,7 +25,7 @@ import { inspectWorkspace } from '../engine/inspection.js';
 import { diffWorkspaces } from '../engine/diff.js';
 import { StructurizrMCP } from '../engine/mcp.js';
 import { WorkspaceRepository } from '../storage/repository.js';
-import { deleteFromDsl } from '../engine/modifier.js';
+import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl } from '../engine/modifier.js';
 import { preprocessWorkspace, mapParseError } from '../engine/preprocessor.js';
 import { AuthService } from '../auth/service.js';
 import { requireAbility } from '../auth/middleware.js';
@@ -751,6 +751,83 @@ export function createApp(
         dsl: deleteResult.dsl,
         deletedNodeIds: deleteResult.deletedNodeIds,
         deletedEdgeIds: deleteResult.deletedEdgeIds,
+        canvas: canvasData,
+        findings
+      });
+    } catch (err: any) {
+      return c.json({
+        success: false,
+        detail: err.message
+      }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/relationships', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    const action = body.action || (body.edgeId ? 'update' : 'create');
+    const dsl = body.dsl || '';
+    const viewKey = body.viewKey || null;
+
+    const ws = repo.getWorkspace(workspaceId);
+    const layoutCache = ws?.layoutCache || {};
+
+    try {
+      let resultDsl = dsl;
+      let relObj: any = null;
+
+      if (action === 'create') {
+        const sourceId = body.sourceId;
+        const targetId = body.targetId;
+        const description = body.description || '';
+        const technology = body.technology || '';
+
+        if (!sourceId || !targetId) {
+          return c.json({ success: false, detail: 'sourceId and targetId are required' }, 400);
+        }
+
+        const addResult = addRelationshipToDsl(dsl, {
+          sourceId,
+          targetId,
+          description,
+          technology
+        });
+        resultDsl = addResult.dsl;
+        relObj = addResult.relationship;
+      } else if (action === 'update') {
+        const edgeId = body.edgeId;
+        if (!edgeId) {
+          return c.json({ success: false, detail: 'edgeId is required for relationship update' }, 400);
+        }
+
+        const updateResult = updateRelationshipInDsl(dsl, {
+          edgeId,
+          sourceId: body.sourceId,
+          targetId: body.targetId,
+          description: body.description,
+          technology: body.technology
+        });
+        resultDsl = updateResult.dsl;
+        relObj = updateResult.relationship;
+      } else {
+        return c.json({ success: false, detail: `Invalid action "${action}"` }, 400);
+      }
+
+      const parsed = parseDsl(resultDsl);
+
+      for (const v of parsed.views) {
+        if (layoutCache[v.key]) {
+          v.layoutCoordinates = layoutCache[v.key];
+        }
+      }
+
+      const canvasData = compileViewToCanvas(parsed, viewKey);
+      const findings = inspectWorkspace(parsed);
+
+      return c.json({
+        success: true,
+        dsl: resultDsl,
+        relationship: relObj,
         canvas: canvasData,
         findings
       });

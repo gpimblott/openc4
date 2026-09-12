@@ -402,11 +402,14 @@ export class Parser {
     if (curr.type === 'IDENTIFIER') {
       const val = curr.value.toLowerCase();
       if (val === 'model') {
+        const startLine = curr.line;
         this.pos += 1;
         this.expect('LBRACE');
         while (!this.match('RBRACE') && !this.match('EOF')) {
           this.parseModelBody();
         }
+        const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? startLine;
+        this.workspace.model.lineRange = { startLine, endLine };
         return;
       } else if (val === 'views') {
         this.pos += 1;
@@ -447,6 +450,33 @@ export class Parser {
           this.identifiersMode = 'hierarchical';
         } else if (arg === 'flat') {
           this.identifiersMode = 'flat';
+        }
+        return;
+      } else if (val === '!impliedrelationships' || val === 'impliedrelationships') {
+        this.pos += 1;
+        const arg = this.expectStringOrIdentifier();
+        const low = arg.toLowerCase();
+        const mode = low === 'false' ? false : low === 'true' ? true : arg;
+        this.workspace.impliedRelationships = mode;
+        this.workspace.model.impliedRelationships = mode;
+        return;
+      } else if (val === 'configuration') {
+        this.pos += 1;
+        if (this.match('LBRACE')) {
+          while (!this.match('RBRACE') && !this.match('EOF')) {
+            const cCurr = this.current();
+            const cKw = cCurr.type === 'IDENTIFIER' ? cCurr.value.toLowerCase() : '';
+            if (cKw === '!impliedrelationships' || cKw === 'impliedrelationships') {
+              this.pos += 1;
+              const arg = this.expectStringOrIdentifier();
+              const low = arg.toLowerCase();
+              const mode = low === 'false' ? false : low === 'true' ? true : arg;
+              this.workspace.impliedRelationships = mode;
+              this.workspace.model.impliedRelationships = mode;
+            } else {
+              this.pos += 1;
+            }
+          }
         }
         return;
       } else if (val.startsWith('!')) {
@@ -496,6 +526,14 @@ export class Parser {
     } else if (keyword === '!relationship') {
       this.pos += 1;
       this.parseRelationshipExtension();
+      return;
+    } else if (keyword === '!impliedrelationships' || keyword === 'impliedrelationships') {
+      this.pos += 1;
+      const arg = this.expectStringOrIdentifier();
+      const low = arg.toLowerCase();
+      const mode = low === 'false' ? false : low === 'true' ? true : arg;
+      this.workspace.impliedRelationships = mode;
+      this.workspace.model.impliedRelationships = mode;
       return;
     } else if (keyword.startsWith('!')) {
       this.pos += 1;
@@ -1820,6 +1858,8 @@ export class Parser {
       }
     }
 
+    this.generateImpliedRelationships();
+
     const resolveDeploymentNodeReferences = (node: DeploymentNode) => {
       node.containerInstances = node.containerInstances.map((ci) =>
         this.identifierToId.has(ci) ? this.identifierToId.get(ci)! : ci
@@ -1893,6 +1933,118 @@ export class Parser {
         }
       }
     }
+  }
+
+  private generateImpliedRelationships() {
+    const strategy = this.workspace.impliedRelationships;
+    if (strategy === false || strategy === undefined) {
+      return;
+    }
+
+    // Helper to get ancestry chain from child to root: [self, parent, grandParent]
+    const getAncestry = (elemId: string): any[] => {
+      const chain: any[] = [];
+      const elem = this.idToElement.get(elemId);
+      if (!elem) return chain;
+      chain.push(elem);
+
+      if ('containerId' in elem && elem.containerId) {
+        const cont = this.idToElement.get(elem.containerId);
+        if (cont) {
+          chain.push(cont);
+          if ('systemId' in cont && cont.systemId) {
+            const sys = this.idToElement.get(cont.systemId);
+            if (sys) chain.push(sys);
+          }
+        }
+      } else if ('systemId' in elem && elem.systemId) {
+        const sys = this.idToElement.get(elem.systemId);
+        if (sys) chain.push(sys);
+      }
+
+      return chain;
+    };
+
+    // Helper to check if a is an ancestor of b
+    const isAncestorOf = (aId: string, bId: string): boolean => {
+      const bAncestors = getAncestry(bId);
+      return bAncestors.slice(1).some((anc) => anc.id === aId);
+    };
+
+    const strategyStr = typeof strategy === 'string' ? strategy.toLowerCase() : 'unlessSameRelationshipExists';
+    const isUnlessAny = strategyStr.includes('unlessanyrelationship');
+    const isDefaultStrategy = strategyStr === 'defaultimpliedrelationshipstrategy' || strategyStr === 'default';
+
+    // Only inspect explicit relationships to generate implied ones
+    const explicitRels = this.workspace.model.relationships.filter((r) => !r.implied);
+    const newImpliedRels: Relationship[] = [];
+
+    for (const rel of explicitRels) {
+      const sourceAncestors = getAncestry(rel.sourceId);
+      const destAncestors = getAncestry(rel.destinationId);
+
+      for (const sElem of sourceAncestors) {
+        for (const dElem of destAncestors) {
+          // 1. Cannot imply relationship from element to itself
+          if (sElem.id === dElem.id) continue;
+
+          // 2. Skip the original explicit relationship itself
+          if (sElem.id === rel.sourceId && dElem.id === rel.destinationId) continue;
+
+          // 3. Implied relationships are not created between an element and its own parent/child
+          if (isAncestorOf(sElem.id, dElem.id) || isAncestorOf(dElem.id, sElem.id)) continue;
+
+          // 4. Check if existing relationship satisfies strategy
+          const existing = this.workspace.model.relationships.concat(newImpliedRels).find((r) => {
+            if (isUnlessAny) {
+              return (
+                (r.sourceId === sElem.id && r.destinationId === dElem.id) ||
+                (r.sourceId === dElem.id && r.destinationId === sElem.id)
+              );
+            }
+            if (isDefaultStrategy) {
+              // DefaultImpliedRelationshipStrategy creates implied relationships regardless of duplicates,
+              // but avoid exact duplicate created from the same source relationship in the current pass
+              return (
+                r.sourceId === sElem.id &&
+                r.destinationId === dElem.id &&
+                r.description === rel.description &&
+                r.linkedRelationshipId === rel.id
+              );
+            }
+            // Default (CreateImpliedRelationshipsUnlessSameRelationshipExistsStrategy):
+            // creates implied relationships unless relationship with same source, destination, and description exists
+            return (
+              r.sourceId === sElem.id &&
+              r.destinationId === dElem.id &&
+              r.description === rel.description
+            );
+          });
+
+          if (existing) continue;
+
+          // Create implied relationship
+          const impliedRel: Relationship = {
+            id: `implied_${rel.id}_${sElem.id}_${dElem.id}`,
+            sourceId: sElem.id,
+            destinationId: dElem.id,
+            sourceIdentifier: sElem.identifier || sElem.name,
+            destinationIdentifier: dElem.identifier || dElem.name,
+            description: rel.description,
+            technology: rel.technology,
+            interactionStyle: (rel.interactionStyle as any) || 'Synchronous',
+            tags: ['Relationship', ...(rel.tags || []).filter((t: string) => t !== 'Relationship')],
+            properties: { ...(rel.properties || {}), 'structurizr.implied': 'true' },
+            implied: true,
+            linkedRelationshipId: rel.id
+          };
+
+          newImpliedRels.push(impliedRel);
+        }
+      }
+    }
+
+    this.workspace.model.relationships.push(...newImpliedRels);
   }
 }
 
