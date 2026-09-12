@@ -15,9 +15,6 @@ import Editor from '@monaco-editor/react';
 import {
   Server,
   Save,
-  Download,
-  GitCompare,
-  ShieldAlert,
   Layers,
   Check,
   AlertCircle,
@@ -29,7 +26,6 @@ import {
   Trash2,
   ChevronDown,
   History,
-  Plus,
   Cpu,
   Home,
   ChevronRight,
@@ -57,6 +53,9 @@ import { FileTree } from './components/FileTree';
 import { EditorTabs } from './components/EditorTabs';
 import { useAuth } from './context/AuthContext';
 import { UserMenu } from './components/UserMenu';
+import { ToolsMenu } from './components/ToolsMenu';
+import { WorkspaceMenu } from './components/WorkspaceMenu';
+import { ExportMenu } from './components/ExportMenu';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { Lock } from 'lucide-react';
@@ -827,9 +826,11 @@ export function App() {
       .catch((err) => console.error('Failed to switch view', err));
   }, [applyCanvasData, authFetch, currentWorkspaceId, dslCode, entryPoint]);
 
-  // Helper to find the top-level view (System Landscape or System Context)
+  // Helper to find the top-level view (explicit default view, System Landscape, or System Context)
   const getHomeView = useCallback(() => {
     if (availableViews.length === 0) return null;
+    const explicitDefault = availableViews.find((v: any) => v.isDefault);
+    if (explicitDefault) return explicitDefault;
     const landscape = availableViews.find((v) => v.type.toLowerCase().includes('landscape'));
     if (landscape) return landscape;
     const context = availableViews.find((v) => v.type.toLowerCase().includes('context'));
@@ -931,9 +932,9 @@ export function App() {
           (v) =>
             v.type.toLowerCase().includes('container') &&
             (v.softwareSystemId === node.id ||
-              v.softwareSystemId === nodeData.identifier ||
-              v.softwareSystemId === nodeData.name)
-        ) || availableViews.find((v) => v.type.toLowerCase().includes('container'));
+              (nodeData.identifier && v.softwareSystemId === nodeData.identifier) ||
+              (nodeData.name && v.softwareSystemId === nodeData.name))
+        );
 
       if (containerView) {
         handleViewChange(containerView.key);
@@ -947,9 +948,9 @@ export function App() {
           (v) =>
             v.type.toLowerCase().includes('component') &&
             (v.containerId === node.id ||
-              v.containerId === nodeData.identifier ||
-              v.containerId === nodeData.name)
-        ) || availableViews.find((v) => v.type.toLowerCase().includes('component'));
+              (nodeData.identifier && v.containerId === nodeData.identifier) ||
+              (nodeData.name && v.containerId === nodeData.name))
+        );
 
       if (compView) {
         handleViewChange(compView.key);
@@ -1294,25 +1295,14 @@ export function App() {
               ))}
             </select>
 
-            {canEdit && (
-              <button
-                onClick={() => setIsCreateWorkspaceModalOpen(true)}
-                title="Create New Architecture Workspace"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition shrink-0 cursor-pointer flex items-center justify-center"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {canDelete && workspaces.length > 0 && (
-              <button
-                onClick={() => setIsDeleteWorkspaceModalOpen(true)}
-                title={`Delete Workspace "${workspaceInfo?.name || 'Workspace'}"`}
-                className="p-1.5 bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 rounded-lg border border-slate-700 hover:border-rose-800/60 transition shrink-0 cursor-pointer flex items-center justify-center"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <WorkspaceMenu
+              canEdit={canEdit}
+              canDelete={canDelete}
+              hasWorkspaces={workspaces.length > 0}
+              workspaceName={workspaceInfo?.name}
+              onCreateWorkspace={() => setIsCreateWorkspaceModalOpen(true)}
+              onDeleteWorkspace={() => setIsDeleteWorkspaceModalOpen(true)}
+            />
           </div>
 
           {/* Status & Version Pill with Interactive Version Dropdown */}
@@ -1479,52 +1469,22 @@ export function App() {
 
         {/* Right: Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* MCP Validate */}
-          <button
-            onClick={() => setIsMcpModalOpen(true)}
-            title="Validate DSL with Local Structurizr MCP Server"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 hover:bg-slate-700 hover:border-cyan-500/50 transition cursor-pointer"
-          >
-            <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="hidden lg:inline">MCP Validate</span>
-          </button>
+          {/* Tools Menu (Inspection, Diff, MCP Validate) */}
+          <ToolsMenu
+            findingsCount={findings.length}
+            onOpenInspection={() => setIsInspectionOpen(true)}
+            onOpenDiff={() => handleOpenDiff()}
+            onOpenMcpValidation={() => setIsMcpModalOpen(true)}
+          />
 
-          {/* Inspection findings button */}
-          <button
-            onClick={() => setIsInspectionOpen(true)}
-            title={`Architecture Inspection: ${findings.length} findings`}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
-              findings.length > 0
-                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
-                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-            }`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden xl:inline">Inspection</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-900/60 border border-current font-mono">
-              {findings.length}
-            </span>
-          </button>
-
-          {/* Visual Diff */}
-          <button
-            onClick={() => handleOpenDiff()}
-            title="Visual & Architecture Diff"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition"
-          >
-            <GitCompare className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-            <span className="hidden lg:inline">Diff</span>
-          </button>
-
-          {/* Export */}
-          <button
-            onClick={() => setIsExportOpen(true)}
-            title="Export Diagram (Mermaid, PlantUML, JSON)"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="hidden md:inline">Export</span>
-          </button>
+          {/* Export Menu */}
+          <ExportMenu
+            workspaceId={currentWorkspaceId}
+            currentViewKey={currentViewKey}
+            onOpenExportModal={() => setIsExportOpen(true)}
+            authFetch={authFetch}
+            onShowToast={(message, type) => setToast({ message, type })}
+          />
 
           <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 

@@ -5,7 +5,7 @@
  * 3. To Mermaid and PlantUML (for export)
  */
 
-import { Workspace, View } from './ast.js';
+import { Workspace, View, Relationship, DeploymentNode } from './ast.js';
 
 export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   // Build relationships lookup by source ID
@@ -110,6 +110,8 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   const containerViews: any[] = [];
   const componentViews: any[] = [];
   const systemLandscapeViews: any[] = [];
+  const deploymentViews: any[] = [];
+  const dynamicViews: any[] = [];
 
   for (const v of ws.views) {
     const vData: Record<string, any> = {
@@ -117,7 +119,7 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       description: v.description,
       title: v.title,
       elements: v.includedElementIds
-        .filter((eid) => eid !== '*')
+        .filter((eid) => eid !== '*' && !eid.includes('->') && !eid.includes('==') && !eid.includes('!='))
         .map((eid) => ({
           id: eid,
           x: v.layoutCoordinates[eid]?.x ?? 0,
@@ -150,6 +152,13 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       componentViews.push(vData);
     } else if (v.viewType === 'systemlandscape') {
       systemLandscapeViews.push(vData);
+    } else if (v.viewType === 'deployment') {
+      vData.environment = v.environment;
+      vData.softwareSystemId = v.softwareSystemId;
+      deploymentViews.push(vData);
+    } else if (v.viewType === 'dynamic') {
+      vData.elementId = v.softwareSystemId || v.containerId;
+      dynamicViews.push(vData);
     }
   }
 
@@ -194,6 +203,8 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       systemContextViews,
       containerViews,
       componentViews,
+      deploymentViews,
+      dynamicViews,
       configuration: {
         styles: {
           elements: elementStylesJson,
@@ -205,13 +216,224 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   };
 }
 
+function evaluateInclusionExpressions(
+  items: string[],
+  allElements: Record<string, any>,
+  relationships: Relationship[],
+  naturalScopeIds: Set<string>
+): Set<string> {
+  const result = new Set<string>();
+  const findElem = (ref: string): any => {
+    if (allElements[ref]) return allElements[ref];
+    return (
+      Object.values(allElements).find(
+        (e: any) =>
+          e.identifier === ref ||
+          e.name === ref ||
+          (e.identifier && e.identifier.toLowerCase() === ref.toLowerCase())
+      ) || null
+    );
+  };
+
+  for (const item of items) {
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+
+    if (trimmed === '*') {
+      for (const id of naturalScopeIds) result.add(id);
+      continue;
+    }
+
+    // Tag expression: element.tag == X or element.tag != X
+    const tagEqualMatch = trimmed.match(/^element\.tag\s*==\s*['"]?([^'"]+)['"]?$/i);
+    if (tagEqualMatch) {
+      const tag = tagEqualMatch[1].trim();
+      for (const [id, elem] of Object.entries(allElements)) {
+        if (elem.tags && elem.tags.includes(tag)) {
+          result.add(id);
+        }
+      }
+      continue;
+    }
+
+    const tagNotEqualMatch = trimmed.match(/^element\.tag\s*!=\s*['"]?([^'"]+)['"]?$/i);
+    if (tagNotEqualMatch) {
+      const tag = tagNotEqualMatch[1].trim();
+      for (const [id, elem] of Object.entries(allElements)) {
+        if (elem.tags && !elem.tags.includes(tag)) {
+          result.add(id);
+        }
+      }
+      continue;
+    }
+
+    // Incoming expression: ->target
+    if (trimmed.startsWith('->')) {
+      const target = trimmed.slice(2).trim();
+      const targetElem = findElem(target);
+      if (targetElem) result.add(targetElem.id);
+      for (const rel of relationships) {
+        if (
+          rel.destinationId === target ||
+          rel.destinationIdentifier === target ||
+          (targetElem && rel.destinationId === targetElem.id)
+        ) {
+          result.add(rel.sourceId);
+        }
+      }
+      continue;
+    }
+
+    // Outgoing expression: target->
+    if (trimmed.endsWith('->') && !trimmed.startsWith('->')) {
+      const source = trimmed.slice(0, -2).trim();
+      const sourceElem = findElem(source);
+      if (sourceElem) result.add(sourceElem.id);
+      for (const rel of relationships) {
+        if (
+          rel.sourceId === source ||
+          rel.sourceIdentifier === source ||
+          (sourceElem && rel.sourceId === sourceElem.id)
+        ) {
+          result.add(rel.destinationId);
+        }
+      }
+      continue;
+    }
+
+    // Specific relationship: source->dest or source -> dest
+    if (trimmed.includes('->')) {
+      const parts = trimmed.split('->').map((p) => p.trim());
+      if (parts.length === 2) {
+        const sElem = findElem(parts[0]);
+        const dElem = findElem(parts[1]);
+        if (sElem) result.add(sElem.id);
+        if (dElem) result.add(dElem.id);
+        continue;
+      }
+    }
+
+    // Direct element ID / identifier
+    const directElem = findElem(trimmed);
+    if (directElem) {
+      result.add(directElem.id);
+    }
+  }
+
+  return result;
+}
+
+function applyExclusionExpressions(
+  items: string[],
+  visibleElementIds: Set<string>,
+  allElements: Record<string, any>,
+  relationships: Relationship[]
+) {
+  const findElem = (ref: string): any => {
+    if (allElements[ref]) return allElements[ref];
+    return (
+      Object.values(allElements).find(
+        (e: any) =>
+          e.identifier === ref ||
+          e.name === ref ||
+          (e.identifier && e.identifier.toLowerCase() === ref.toLowerCase())
+      ) || null
+    );
+  };
+
+  for (const item of items) {
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+
+    // Tag expression: element.tag == X or element.tag != X
+    const tagEqualMatch = trimmed.match(/^element\.tag\s*==\s*['"]?([^'"]+)['"]?$/i);
+    if (tagEqualMatch) {
+      const tag = tagEqualMatch[1].trim();
+      for (const id of Array.from(visibleElementIds)) {
+        const elem = allElements[id];
+        if (elem?.tags?.includes(tag)) {
+          visibleElementIds.delete(id);
+        }
+      }
+      continue;
+    }
+
+    const tagNotEqualMatch = trimmed.match(/^element\.tag\s*!=\s*['"]?([^'"]+)['"]?$/i);
+    if (tagNotEqualMatch) {
+      const tag = tagNotEqualMatch[1].trim();
+      for (const id of Array.from(visibleElementIds)) {
+        const elem = allElements[id];
+        if (elem?.tags && !elem.tags.includes(tag)) {
+          visibleElementIds.delete(id);
+        }
+      }
+      continue;
+    }
+
+    // Incoming expression: ->target
+    if (trimmed.startsWith('->')) {
+      const target = trimmed.slice(2).trim();
+      const targetElem = findElem(target);
+      if (targetElem) visibleElementIds.delete(targetElem.id);
+      for (const rel of relationships) {
+        if (
+          rel.destinationId === target ||
+          rel.destinationIdentifier === target ||
+          (targetElem && rel.destinationId === targetElem.id)
+        ) {
+          visibleElementIds.delete(rel.sourceId);
+        }
+      }
+      continue;
+    }
+
+    // Outgoing expression: target->
+    if (trimmed.endsWith('->') && !trimmed.startsWith('->')) {
+      const source = trimmed.slice(0, -2).trim();
+      const sourceElem = findElem(source);
+      if (sourceElem) visibleElementIds.delete(sourceElem.id);
+      for (const rel of relationships) {
+        if (
+          rel.sourceId === source ||
+          rel.sourceIdentifier === source ||
+          (sourceElem && rel.sourceId === sourceElem.id)
+        ) {
+          visibleElementIds.delete(rel.destinationId);
+        }
+      }
+      continue;
+    }
+
+    // Specific relationship: source->dest or source -> dest
+    if (trimmed.includes('->')) {
+      const parts = trimmed.split('->').map((p) => p.trim());
+      if (parts.length === 2) {
+        const sElem = findElem(parts[0]);
+        const dElem = findElem(parts[1]);
+        if (sElem) visibleElementIds.delete(sElem.id);
+        if (dElem) visibleElementIds.delete(dElem.id);
+        continue;
+      }
+    }
+
+    // Direct element ID / identifier
+    const directElem = findElem(trimmed);
+    if (directElem) {
+      visibleElementIds.delete(directElem.id);
+    }
+  }
+}
+
 export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Record<string, any> {
   let view: View | undefined;
   if (viewKey) {
     view = ws.views.find((v) => v.key === viewKey);
   }
+  if (!view && ws.defaultView) {
+    view = ws.views.find((v) => v.key === ws.defaultView);
+  }
   if (!view && ws.views.length > 0) {
-    view = ws.views[0];
+    view = ws.views.find((v) => v.isDefault) || ws.views[0];
   }
 
   // Map all elements by ID
@@ -221,6 +443,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   for (const p of ws.model.people) {
     allElements[p.id] = {
       id: p.id,
+      identifier: p.identifier,
       type: 'person',
       name: p.name,
       description: p.description,
@@ -279,24 +502,28 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     if (allElements[idOrIdent]) return allElements[idOrIdent];
     return (
       Object.values(allElements).find(
-        (e: any) => e.id === idOrIdent || e.identifier === idOrIdent || e.name === idOrIdent
+        (e: any) =>
+          e.identifier === idOrIdent ||
+          e.name === idOrIdent ||
+          (e.identifier && e.identifier.toLowerCase() === idOrIdent.toLowerCase())
       ) || null
     );
   };
 
-  // Helper hierarchy getters
+  // Helper to get root software system ID for any element
   const getSystemId = (id: string): string | null => {
     const elem = allElements[id];
     if (!elem) return null;
     if (elem.type === 'softwareSystem') return id;
     if (elem.type === 'container') return elem.parentId;
     if (elem.type === 'component') {
-      const cont = allElements[elem.parentId];
-      return cont?.parentId || null;
+      const contId = elem.parentId;
+      return contId ? parentMap[contId] || null : null;
     }
     return null;
   };
 
+  // Helper to get container ID for any element
   const getContainerId = (id: string): string | null => {
     const elem = allElements[id];
     if (!elem) return null;
@@ -305,138 +532,221 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     return null;
   };
 
-  // Determine visible elements based on view
-  const visibleElementIds = new Set<string>();
-  if (!view || view.includeAll) {
-    if (!view || view.viewType === 'systemlandscape') {
-      for (const p of ws.model.people) visibleElementIds.add(p.id);
-      for (const s of ws.model.softwareSystems) visibleElementIds.add(s.id);
-    } else if (view.viewType === 'systemcontext') {
-      const targetSys = findElement(view.softwareSystemId);
-      const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
-      if (targetSysId && allElements[targetSysId]) {
-        visibleElementIds.add(targetSysId);
-        // Find people and software systems that have direct or implied relationships with targetSysId
-        for (const rel of ws.model.relationships) {
-          const sSys = getSystemId(rel.sourceId);
-          const dSys = getSystemId(rel.destinationId);
-          const sElem = allElements[rel.sourceId];
-          const dElem = allElements[rel.destinationId];
+  // If view is deployment, register deployment nodes, infrastructure nodes, and instances
+  const isDeploymentView = view?.viewType === 'deployment';
+  const targetEnvironment = view?.environment?.toLowerCase() || '';
 
-          if (rel.sourceId === targetSysId || sSys === targetSysId) {
-            if (dElem?.type === 'person') {
-              visibleElementIds.add(dElem.id);
-            } else if (dSys && dSys !== targetSysId) {
-              visibleElementIds.add(dSys);
-            }
-          }
-          if (rel.destinationId === targetSysId || dSys === targetSysId) {
-            if (sElem?.type === 'person') {
-              visibleElementIds.add(sElem.id);
-            } else if (sSys && sSys !== targetSysId) {
-              visibleElementIds.add(sSys);
-            }
-          }
-        }
-      } else {
-        for (const p of ws.model.people) visibleElementIds.add(p.id);
-        for (const s of ws.model.softwareSystems) visibleElementIds.add(s.id);
+  if (isDeploymentView) {
+    const registerDeploymentNodeElements = (node: DeploymentNode, parentNodeId: string | null) => {
+      // Register infrastructure nodes
+      for (const infra of node.infrastructureNodes || []) {
+        allElements[infra.id] = {
+          id: infra.id,
+          identifier: infra.identifier,
+          type: 'infrastructureNode',
+          name: infra.name,
+          description: infra.description,
+          technology: infra.technology,
+          tags: infra.tags,
+          parentId: node.id,
+          group: infra.group || null
+        };
       }
-    } else if (view.viewType === 'container') {
-      const targetSys = findElement(view.softwareSystemId);
-      const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
-      if (targetSys) {
-        // Add all containers of targetSys
-        for (const [cid, elem] of Object.entries(allElements)) {
-          if (elem.type === 'container' && elem.parentId === targetSysId) {
-            visibleElementIds.add(cid);
-          }
-        }
-        // Add external people and software systems interacting with targetSys or its containers
-        for (const rel of ws.model.relationships) {
-          const sSys = getSystemId(rel.sourceId);
-          const dSys = getSystemId(rel.destinationId);
-          const sElem = allElements[rel.sourceId];
-          const dElem = allElements[rel.destinationId];
 
-          if (rel.sourceId === targetSysId || sSys === targetSysId) {
-            if (dElem?.type === 'person') {
-              visibleElementIds.add(dElem.id);
-            } else if (dSys && dSys !== targetSysId) {
-              visibleElementIds.add(dSys);
-            }
-          }
-          if (rel.destinationId === targetSysId || dSys === targetSysId) {
-            if (sElem?.type === 'person') {
-              visibleElementIds.add(sElem.id);
-            } else if (sSys && sSys !== targetSysId) {
-              visibleElementIds.add(sSys);
-            }
+      // Register typed container instances
+      for (const inst of node.typedContainerInstances || []) {
+        const targetCont = findElement(inst.containerId);
+        allElements[inst.id] = {
+          id: inst.id,
+          identifier: inst.identifier,
+          type: 'containerInstance',
+          name: targetCont ? targetCont.name : inst.name,
+          description: targetCont ? targetCont.description : inst.description,
+          technology: targetCont ? targetCont.technology : '',
+          tags: inst.tags,
+          parentId: node.id,
+          group: null,
+          underlyingElementId: targetCont ? targetCont.id : inst.containerId
+        };
+      }
+
+      // Register typed software system instances
+      for (const inst of node.typedSoftwareSystemInstances || []) {
+        const targetSys = findElement(inst.softwareSystemId);
+        allElements[inst.id] = {
+          id: inst.id,
+          identifier: inst.identifier,
+          type: 'softwareSystemInstance',
+          name: targetSys ? targetSys.name : inst.name,
+          description: targetSys ? targetSys.description : inst.description,
+          technology: '',
+          tags: inst.tags,
+          parentId: node.id,
+          group: null,
+          underlyingElementId: targetSys ? targetSys.id : inst.softwareSystemId
+        };
+      }
+
+      // Handle raw string containerInstances if not already typed
+      for (const cTarget of node.containerInstances || []) {
+        const alreadyTyped = (node.typedContainerInstances || []).some((ci) => ci.containerId === cTarget);
+        if (!alreadyTyped) {
+          const targetCont = findElement(cTarget);
+          const genId = `${node.id}_${cTarget}`;
+          if (!allElements[genId]) {
+            allElements[genId] = {
+              id: genId,
+              identifier: `${cTarget}_instance`,
+              type: 'containerInstance',
+              name: targetCont ? targetCont.name : cTarget,
+              description: targetCont ? targetCont.description : '',
+              technology: targetCont ? targetCont.technology : '',
+              tags: ['Container Instance', 'Element'],
+              parentId: node.id,
+              group: null,
+              underlyingElementId: targetCont ? targetCont.id : cTarget
+            };
           }
         }
       }
-    } else if (view.viewType === 'component') {
-      const targetCont = findElement(view.containerId);
-      if (targetCont) {
-        const actualContId = targetCont.id;
-        const parentSysId = targetCont.parentId;
-        // Add all components inside targetCont
-        for (const [compId, comp] of Object.entries(allElements)) {
-          if (comp.parentId === actualContId) {
-            visibleElementIds.add(compId);
-          }
+
+      // Recurse children
+      for (const child of node.children) {
+        registerDeploymentNodeElements(child, node.id);
+      }
+    };
+
+    for (const dNode of ws.model.deploymentNodes) {
+      if (!targetEnvironment || !dNode.environment || dNode.environment.toLowerCase() === targetEnvironment) {
+        registerDeploymentNodeElements(dNode, null);
+      }
+    }
+  }
+
+  // Determine natural scope IDs based on view type
+  const naturalScopeIds = new Set<string>();
+  if (!view || view.viewType === 'systemlandscape') {
+    for (const p of ws.model.people) naturalScopeIds.add(p.id);
+    for (const s of ws.model.softwareSystems) naturalScopeIds.add(s.id);
+  } else if (view.viewType === 'systemcontext') {
+    const targetSys = findElement(view.softwareSystemId);
+    const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
+    if (targetSysId && allElements[targetSysId]) {
+      naturalScopeIds.add(targetSysId);
+      for (const rel of ws.model.relationships) {
+        const sSys = getSystemId(rel.sourceId);
+        const dSys = getSystemId(rel.destinationId);
+        const sElem = allElements[rel.sourceId];
+        const dElem = allElements[rel.destinationId];
+
+        if (rel.sourceId === targetSysId || sSys === targetSysId) {
+          if (dElem?.type === 'person') naturalScopeIds.add(dElem.id);
+          else if (dSys && dSys !== targetSysId) naturalScopeIds.add(dSys);
         }
-        // Add elements interacting with targetCont or its components
-        for (const rel of ws.model.relationships) {
-          const sCont = getContainerId(rel.sourceId);
-          const dCont = getContainerId(rel.destinationId);
-          const sSys = getSystemId(rel.sourceId);
-          const dSys = getSystemId(rel.destinationId);
-          const sElem = allElements[rel.sourceId];
-          const dElem = allElements[rel.destinationId];
+        if (rel.destinationId === targetSysId || dSys === targetSysId) {
+          if (sElem?.type === 'person') naturalScopeIds.add(sElem.id);
+          else if (sSys && sSys !== targetSysId) naturalScopeIds.add(sSys);
+        }
+      }
+    } else {
+      for (const p of ws.model.people) naturalScopeIds.add(p.id);
+      for (const s of ws.model.softwareSystems) naturalScopeIds.add(s.id);
+    }
+  } else if (view.viewType === 'container') {
+    const targetSys = findElement(view.softwareSystemId);
+    const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
+    if (targetSys) {
+      for (const [cid, elem] of Object.entries(allElements)) {
+        if (elem.type === 'container' && elem.parentId === targetSysId) {
+          naturalScopeIds.add(cid);
+        }
+      }
+      for (const rel of ws.model.relationships) {
+        const sSys = getSystemId(rel.sourceId);
+        const dSys = getSystemId(rel.destinationId);
+        const sElem = allElements[rel.sourceId];
+        const dElem = allElements[rel.destinationId];
 
-          const sourceIsInside = rel.sourceId === actualContId || sCont === actualContId;
-          const destIsInside = rel.destinationId === actualContId || dCont === actualContId;
-
-          if (sourceIsInside && !destIsInside) {
-            if (dCont && dCont !== actualContId && dSys === parentSysId) {
-              // Sibling container in same software system
-              visibleElementIds.add(dCont);
-            } else if (dElem?.type === 'person') {
-              visibleElementIds.add(dElem.id);
-            } else if (dSys && dSys !== parentSysId) {
-              // External software system
-              visibleElementIds.add(dSys);
-            }
-          } else if (destIsInside && !sourceIsInside) {
-            if (sCont && sCont !== actualContId && sSys === parentSysId) {
-              // Sibling container in same software system
-              visibleElementIds.add(sCont);
-            } else if (sElem?.type === 'person') {
-              visibleElementIds.add(sElem.id);
-            } else if (sSys && sSys !== parentSysId) {
-              // External software system
-              visibleElementIds.add(sSys);
-            }
-          }
+        if (rel.sourceId === targetSysId || sSys === targetSysId) {
+          if (dElem?.type === 'person') naturalScopeIds.add(dElem.id);
+          else if (dSys && dSys !== targetSysId) naturalScopeIds.add(dSys);
+        }
+        if (rel.destinationId === targetSysId || dSys === targetSysId) {
+          if (sElem?.type === 'person') naturalScopeIds.add(sElem.id);
+          else if (sSys && sSys !== targetSysId) naturalScopeIds.add(sSys);
         }
       }
     }
+  } else if (view.viewType === 'component') {
+    const targetCont = findElement(view.containerId);
+    if (targetCont) {
+      const actualContId = targetCont.id;
+      const parentSysId = targetCont.parentId;
+      for (const [compId, comp] of Object.entries(allElements)) {
+        if (comp.parentId === actualContId) naturalScopeIds.add(compId);
+      }
+      for (const rel of ws.model.relationships) {
+        const sCont = getContainerId(rel.sourceId);
+        const dCont = getContainerId(rel.destinationId);
+        const sSys = getSystemId(rel.sourceId);
+        const dSys = getSystemId(rel.destinationId);
+        const sElem = allElements[rel.sourceId];
+        const dElem = allElements[rel.destinationId];
+
+        const sourceIsInside = rel.sourceId === actualContId || sCont === actualContId;
+        const destIsInside = rel.destinationId === actualContId || dCont === actualContId;
+
+        if (sourceIsInside && !destIsInside) {
+          if (dCont && dCont !== actualContId && dSys === parentSysId) naturalScopeIds.add(dCont);
+          else if (dElem?.type === 'person') naturalScopeIds.add(dElem.id);
+          else if (dSys && dSys !== parentSysId) naturalScopeIds.add(dSys);
+        } else if (destIsInside && !sourceIsInside) {
+          if (sCont && sCont !== actualContId && sSys === parentSysId) naturalScopeIds.add(sCont);
+          else if (sElem?.type === 'person') naturalScopeIds.add(sElem.id);
+          else if (sSys && sSys !== parentSysId) naturalScopeIds.add(sSys);
+        }
+      }
+    }
+  } else if (view.viewType === 'deployment') {
+    for (const [eid, elem] of Object.entries(allElements)) {
+      if (['infrastructureNode', 'containerInstance', 'softwareSystemInstance'].includes(elem.type)) {
+        naturalScopeIds.add(eid);
+      }
+    }
+  } else if (view.viewType === 'dynamic') {
+    for (const step of view.dynamicSteps || []) {
+      if (allElements[step.sourceId]) naturalScopeIds.add(step.sourceId);
+      if (allElements[step.destinationId]) naturalScopeIds.add(step.destinationId);
+    }
+  }
+
+  // Determine visible elements: include / exclude expressions
+  let visibleElementIds = new Set<string>();
+  if (!view || view.includeAll || view.includedElementIds.length === 0) {
+    visibleElementIds = new Set<string>(naturalScopeIds);
   } else {
-    for (const eid of view.includedElementIds) {
-      if (allElements[eid]) {
-        visibleElementIds.add(eid);
-      }
+    visibleElementIds = evaluateInclusionExpressions(
+      view.includedElementIds,
+      allElements,
+      ws.model.relationships,
+      naturalScopeIds
+    );
+  }
+
+  // If dynamic view, always ensure participating dynamic steps are visible
+  if (view?.viewType === 'dynamic') {
+    for (const step of view.dynamicSteps || []) {
+      if (allElements[step.sourceId]) visibleElementIds.add(step.sourceId);
+      if (allElements[step.destinationId]) visibleElementIds.add(step.destinationId);
     }
   }
 
-  if (view) {
-    for (const eid of view.excludedElementIds) {
-      visibleElementIds.delete(eid);
-    }
+  // Apply exclusion expressions
+  if (view && view.excludedElementIds.length > 0) {
+    applyExclusionExpressions(view.excludedElementIds, visibleElementIds, allElements, ws.model.relationships);
   }
 
-  // Determine parent boundary outlines for Container or Component views
+  // Determine parent boundaries
   const boundaries: Array<{
     id: string;
     name: string;
@@ -449,10 +759,14 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     strokeWidth?: number | null;
   }> = [];
 
-  // Style mapping
   const styleMap = new Map<string, any>();
   for (const s of ws.elementStyles) {
     styleMap.set(s.tag.toLowerCase(), s);
+  }
+
+  const relStyleMap = new Map<string, any>();
+  for (const rs of ws.relationshipStyles) {
+    relStyleMap.set(rs.tag.toLowerCase(), rs);
   }
 
   const boundaryStyle = styleMap.get('boundary');
@@ -460,7 +774,60 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   const bStrokeWidth = boundaryStyle?.strokeWidth || null;
 
   if (view) {
-    if (view.viewType === 'container' && view.softwareSystemId) {
+    if (view.viewType === 'deployment') {
+      const buildDeploymentBoundaries = (node: DeploymentNode, parentBoundaryId: string | null) => {
+        const childNodeIds: string[] = [];
+
+        for (const child of node.children) {
+          buildDeploymentBoundaries(child, node.id);
+          childNodeIds.push(child.id);
+        }
+
+        for (const infra of node.infrastructureNodes || []) {
+          if (visibleElementIds.has(infra.id)) {
+            childNodeIds.push(infra.id);
+          }
+        }
+
+        for (const inst of node.typedContainerInstances || []) {
+          if (visibleElementIds.has(inst.id)) {
+            childNodeIds.push(inst.id);
+          }
+        }
+
+        for (const inst of node.typedSoftwareSystemInstances || []) {
+          if (visibleElementIds.has(inst.id)) {
+            childNodeIds.push(inst.id);
+          }
+        }
+
+        for (const cTarget of node.containerInstances || []) {
+          const genId = `${node.id}_${cTarget}`;
+          if (visibleElementIds.has(genId) && !childNodeIds.includes(genId)) {
+            childNodeIds.push(genId);
+          }
+        }
+
+        const instCount = node.instances && node.instances !== 1 ? ` (x${node.instances})` : '';
+        boundaries.push({
+          id: node.id,
+          name: node.name,
+          type: 'deploymentNode',
+          technology: node.technology ? `${node.technology}${instCount}` : instCount,
+          description: node.description,
+          childIds: childNodeIds,
+          parentBoundaryId,
+          stroke: '#059669',
+          strokeWidth: 2
+        });
+      };
+
+      for (const dNode of ws.model.deploymentNodes) {
+        if (!targetEnvironment || !dNode.environment || dNode.environment.toLowerCase() === targetEnvironment) {
+          buildDeploymentBoundaries(dNode, null);
+        }
+      }
+    } else if (view.viewType === 'container' && view.softwareSystemId) {
       const targetSys = findElement(view.softwareSystemId);
       if (targetSys) {
         const childIds = Object.values(allElements)
@@ -488,7 +855,6 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         const parentSysId = targetCont.parentId;
         const targetSys = parentSysId ? allElements[parentSysId] : null;
 
-        // Outer boundary: Software System
         if (targetSys) {
           const sysChildIds = Array.from(visibleElementIds).filter(
             (id) => getSystemId(id) === targetSys.id
@@ -508,7 +874,6 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           }
         }
 
-        // Inner boundary: Container
         const compChildIds = Object.keys(allElements).filter(
           (id) => allElements[id]?.parentId === actualContId && visibleElementIds.has(id)
         );
@@ -566,7 +931,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     }
   }
 
-  for (const [key, grp] of groupMap.entries()) {
+  for (const [, grp] of groupMap.entries()) {
     if (grp.childIds.length > 0) {
       const safeId = `group_${grp.parentBoundaryId || 'model'}_${grp.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       boundaries.push({
@@ -594,6 +959,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   for (const eid of visibleElementIds) {
     const elem = allElements[eid];
     if (!elem) continue;
+
     let bgColor =
       elem.type === 'softwareSystem'
         ? '#1168bd'
@@ -601,14 +967,24 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         ? '#08427b'
         : elem.type === 'container'
         ? '#438dd5'
-        : '#85bbf0';
-    let textColor = elem.type !== 'component' ? '#ffffff' : '#000000';
-    let shape = elem.type === 'person' ? 'Person' : 'RoundedBox';
-    let stroke: string | null = null;
-    let strokeWidth: number | null = null;
+        : elem.type === 'component'
+        ? '#85bbf0'
+        : elem.type === 'infrastructureNode'
+        ? '#0284c7'
+        : elem.type === 'containerInstance'
+        ? '#38bdf8'
+        : elem.type === 'softwareSystemInstance'
+        ? '#1e40af'
+        : '#438dd5';
+
+    let textColor = ['#85bbf0', '#38bdf8'].includes(bgColor) ? '#000000' : '#ffffff';
+    let shape = elem.type === 'person' ? 'Person' : elem.type === 'container' ? 'RoundedBox' : 'Box';
+    let stroke = '#ffffff';
+    let strokeWidth = 1;
+    let fontSize = 14;
 
     // Sort tags so generic "Element" is applied first, allowing specific tags (Person, Database, etc.) to override
-    const sortedTags = [...elem.tags].sort((a, b) => {
+    const sortedTags = [...(elem.tags || [])].sort((a, b) => {
       const aIsElem = a.toLowerCase() === 'element';
       const bIsElem = b.toLowerCase() === 'element';
       if (aIsElem && !bIsElem) return -1;
@@ -617,130 +993,200 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     });
 
     for (const tag of sortedTags) {
-      const tagLower = tag.toLowerCase();
-      if (styleMap.has(tagLower)) {
-        const st = styleMap.get(tagLower);
-        if (st.background) bgColor = st.background;
-        if (st.color) textColor = st.color;
-        if (st.shape) shape = st.shape;
-        if (st.stroke) stroke = st.stroke;
-        if (st.strokeWidth !== undefined && st.strokeWidth !== null) strokeWidth = st.strokeWidth;
+      const s = styleMap.get(tag.toLowerCase());
+      if (s) {
+        if (s.background) bgColor = s.background;
+        if (s.color) textColor = s.color;
+        if (s.shape) shape = s.shape;
+        if (s.stroke) stroke = s.stroke;
+        if (s.strokeWidth !== undefined && s.strokeWidth !== null) strokeWidth = s.strokeWidth;
+        if (s.fontSize) fontSize = s.fontSize;
       }
     }
 
-    const savedPos = view?.layoutCoordinates?.[eid];
-    let xPos: number;
-    let yPos: number;
-    if (savedPos && savedPos.x !== undefined && savedPos.y !== undefined) {
-      xPos = savedPos.x;
-      yPos = savedPos.y;
-    } else {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      xPos = 100 + col * spacingX;
-      yPos = 100 + row * spacingY;
-      idx += 1;
-    }
+    const savedPos = view?.layoutCoordinates[eid];
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const position = savedPos ? { x: savedPos.x, y: savedPos.y } : { x: 50 + col * spacingX, y: 50 + row * spacingY };
 
     nodes.push({
       id: eid,
       type: 'c4Node',
-      position: { x: xPos, y: yPos },
+      position,
       data: {
         id: eid,
-        identifier: elem.identifier || '',
+        identifier: elem.identifier || null,
         name: elem.name,
-        description: elem.description,
         type: elem.type,
+        description: elem.description,
         technology: elem.technology,
-        tags: elem.tags,
-        backgroundColor: bgColor,
-        color: textColor,
         shape,
+        backgroundColor: bgColor,
+        textColor,
+        color: textColor,
         stroke,
         strokeWidth,
-        group: elem.group || null
+        fontSize,
+        tags: elem.tags,
+        group: elem.group || null,
+        underlyingElementId: elem.underlyingElementId || null
       }
     });
+    idx++;
   }
 
-  // Helper to map any element to its visible representative in the view
-  const mapToVisible = (elemId: string, isSource: boolean): string | null => {
-    if (visibleElementIds.has(elemId)) return elemId;
+  // Generate Edges
+  const edges: any[] = [];
 
-    const elem = allElements[elemId];
-    if (!elem) return null;
+  if (view?.viewType === 'dynamic') {
+    // Dynamic sequence edges
+    let sIdx = 1;
+    for (const step of view.dynamicSteps || []) {
+      const sElem = allElements[step.sourceId];
+      const dElem = allElements[step.destinationId];
+      if (!sElem || !dElem) continue;
 
-    // In component view: if elemId is the target container itself
-    if (view?.viewType === 'component' && elemId === view.containerId) {
-      const compIds = Array.from(visibleElementIds).filter((id) => allElements[id]?.parentId === elemId);
-      if (compIds.length > 0) {
-        if (!isSource) {
-          const controller = compIds.find(
-            (id) => allElements[id]?.name.toLowerCase().includes('controller') || allElements[id]?.name.toLowerCase().includes('signin')
-          );
-          return controller || compIds[0];
-        } else {
-          const service = compIds.find((id) => allElements[id]?.name.toLowerCase().includes('service'));
-          return service || compIds[compIds.length - 1];
+      const stepNum = step.order || sIdx;
+      const techBadge = step.technology ? ` [${step.technology}]` : '';
+      const cleanDesc = step.description.replace(/^\d+[\.:\s-]+\s*/, '');
+      const label = `${stepNum}. ${cleanDesc || step.description}${techBadge}`;
+
+      edges.push({
+        id: `dynamic_step_${sIdx}_${step.sourceId}_${step.destinationId}`,
+        source: step.sourceId,
+        target: step.destinationId,
+        label,
+        type: 'smoothstep',
+        animated: true,
+        style: {
+          stroke: '#38bdf8',
+          strokeWidth: 2
+        },
+        labelStyle: {
+          fill: '#38bdf8',
+          fontWeight: 600,
+          fontSize: 12
+        },
+        data: {
+          stepOrder: stepNum,
+          description: step.description,
+          technology: step.technology || '',
+          interactionStyle: 'Dynamic'
         }
+      });
+      sIdx++;
+    }
+  } else if (view?.viewType === 'deployment') {
+    // Deployment view edges
+    // 1. Direct relationships on infrastructure nodes or instances
+    // 2. Implied relationships between deployed container instances
+    const instanceLookup = new Map<string, string[]>(); // underlyingId -> array of instanceIds
+    for (const [eid, elem] of Object.entries(allElements)) {
+      if (elem.underlyingElementId && visibleElementIds.has(eid)) {
+        if (!instanceLookup.has(elem.underlyingElementId)) instanceLookup.set(elem.underlyingElementId, []);
+        instanceLookup.get(elem.underlyingElementId)!.push(eid);
       }
     }
 
-    // Try container
-    const contId = getContainerId(elemId);
-    if (contId && visibleElementIds.has(contId)) return contId;
+    const edgeSeen = new Set<string>();
 
-    // Try software system
-    const sysId = getSystemId(elemId);
-    if (sysId && visibleElementIds.has(sysId)) return sysId;
+    for (const rel of ws.model.relationships) {
+      // Check direct
+      if (visibleElementIds.has(rel.sourceId) && visibleElementIds.has(rel.destinationId)) {
+        const edgeKey = `${rel.sourceId}->${rel.destinationId}`;
+        if (!edgeSeen.has(edgeKey)) {
+          edgeSeen.add(edgeKey);
+          edges.push({
+            id: `edge_${rel.id}`,
+            source: rel.sourceId,
+            target: rel.destinationId,
+            label: rel.description,
+            type: 'smoothstep',
+            data: {
+              technology: rel.technology,
+              interactionStyle: rel.interactionStyle
+            }
+          });
+        }
+      }
 
-    return null;
-  };
+      // Check instance-to-instance mapping
+      const srcInstances = instanceLookup.get(rel.sourceId) || [];
+      const dstInstances = instanceLookup.get(rel.destinationId) || [];
+      for (const sInst of srcInstances) {
+        for (const dInst of dstInstances) {
+          const edgeKey = `${sInst}->${dInst}`;
+          if (!edgeSeen.has(edgeKey)) {
+            edgeSeen.add(edgeKey);
+            edges.push({
+              id: `edge_dep_${rel.id}_${sInst}_${dInst}`,
+              source: sInst,
+              target: dInst,
+              label: rel.description,
+              type: 'smoothstep',
+              data: {
+                technology: rel.technology,
+                interactionStyle: rel.interactionStyle
+              }
+            });
+          }
+        }
+      }
+    }
+  } else {
+    // Standard views: context, container, component, landscape
+    const findVisibleRepresentative = (elemId: string): string | null => {
+      if (visibleElementIds.has(elemId)) return elemId;
 
-  // Generate React Flow edges with roll-up and deduplication
-  const edges: any[] = [];
-  const edgeKeySet = new Set<string>();
+      // In container or component views, components roll up to container
+      const contId = getContainerId(elemId);
+      if (contId && visibleElementIds.has(contId)) return contId;
 
-  for (const rel of ws.model.relationships) {
-    const sVis = mapToVisible(rel.sourceId, true);
-    const dVis = mapToVisible(rel.destinationId, false);
+      // Then roll up to software system
+      const sysId = getSystemId(elemId);
+      if (sysId && visibleElementIds.has(sysId)) return sysId;
 
-    if (sVis && dVis && sVis !== dVis) {
-      const dedupKey = `${sVis}->${dVis}:${rel.description || ''}`;
-      if (!edgeKeySet.has(dedupKey)) {
-        edgeKeySet.add(dedupKey);
-        const relStyle = ws.relationshipStyles?.find((rs) => rel.tags.some((t: string) => t.toLowerCase() === rs.tag.toLowerCase()));
-        const strokeColor = relStyle?.color || '#94a3b8';
-        const strokeWidth = relStyle?.thickness || 2;
-        const isDashed = relStyle?.dashed ?? false;
+      return null;
+    };
+
+    const edgeSeen = new Set<string>();
+
+    for (const rel of ws.model.relationships) {
+      const src = findVisibleRepresentative(rel.sourceId);
+      const dst = findVisibleRepresentative(rel.destinationId);
+
+      if (src && dst && src !== dst) {
+        const edgeKey = `${src}->${dst}:${rel.description}`;
+        if (edgeSeen.has(edgeKey)) continue;
+        edgeSeen.add(edgeKey);
+        let edgeColor = '#64748b';
+        let edgeThickness = 2;
+        let isDashed = false;
+
+        for (const tag of rel.tags || []) {
+          const rs = relStyleMap.get(tag.toLowerCase());
+          if (rs) {
+            if (rs.color) edgeColor = rs.color;
+            if (rs.thickness) edgeThickness = rs.thickness;
+            if (rs.dashed !== undefined) isDashed = rs.dashed;
+          }
+        }
 
         edges.push({
-          id: `e-${rel.id}`,
-          source: sVis,
-          target: dVis,
+          id: `edge_${rel.id}`,
+          source: src,
+          target: dst,
           label: rel.description,
-          data: {
-            id: rel.id,
-            sourceId: sVis,
-            destinationId: dVis,
-            originalSourceId: rel.sourceId,
-            originalDestinationId: rel.destinationId,
-            description: rel.description,
-            technology: rel.technology,
-            tags: rel.tags
-          },
-          animated: rel.tags.map((t: string) => t.toLowerCase()).includes('asynchronous'),
+          type: 'smoothstep',
+          animated: rel.interactionStyle?.toLowerCase() === 'asynchronous',
           style: {
-            stroke: strokeColor,
-            strokeWidth,
-            strokeDasharray: isDashed ? '5 5' : undefined
+            stroke: edgeColor,
+            strokeWidth: edgeThickness,
+            strokeDasharray: isDashed ? '5,5' : undefined
           },
-          markerEnd: {
-            type: 'arrowclosed',
-            color: strokeColor,
-            width: 18,
-            height: 18
+          data: {
+            technology: rel.technology,
+            interactionStyle: rel.interactionStyle
           }
         });
       }
@@ -753,6 +1199,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     title: view ? view.title : ws.name,
     description: view ? view.description : ws.description,
     autoLayout: view?.autoLayout || 'tb',
+    defaultView: ws.defaultView || ws.views.find((v) => v.isDefault)?.key || ws.views[0]?.key || 'Default',
     boundary,
     boundaries,
     nodes,
@@ -763,7 +1210,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       title: v.title,
       description: v.description,
       softwareSystemId: v.softwareSystemId,
-      containerId: v.containerId
+      containerId: v.containerId,
+      environment: v.environment,
+      isDefault: v.isDefault || v.key === ws.defaultView
     }))
   };
 }
@@ -835,7 +1284,7 @@ export function exportToMermaid(ws: Workspace, viewKey?: string | null): string 
     const tid = edge.target;
     const label = edge.label || '';
     const tech = edge.data?.technology || '';
-    const edgeLabel = tech ? `${label} [${tech}]` : label;
+    const edgeLabel = tech && !label.includes(tech) ? `${label} [${tech}]` : label;
     lines.push(`    node_${sid} -->|"${edgeLabel}"| node_${tid}`);
   }
 
@@ -844,9 +1293,16 @@ export function exportToMermaid(ws: Workspace, viewKey?: string | null): string 
 
 export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string {
   const canvasData = compileViewToCanvas(ws, viewKey);
+  const includeUrl =
+    canvasData.viewType === 'dynamic'
+      ? 'https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml'
+      : canvasData.viewType === 'deployment'
+      ? 'https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml'
+      : 'https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml';
+
   const lines = [
     '@startuml',
-    '!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml',
+    `!include ${includeUrl}`,
     `title ${canvasData.title || 'Architecture Diagram'}`,
     ''
   ];
@@ -870,6 +1326,12 @@ export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string
       return `${indent}Container(c_${nid}, "${name}", "${tech}", "${desc}")`;
     } else if (ntype === 'component') {
       return `${indent}Component(comp_${nid}, "${name}", "${tech}", "${desc}")`;
+    } else if (ntype === 'infrastructureNode') {
+      return `${indent}Node(infra_${nid}, "${name}", "${tech}", "${desc}")`;
+    } else if (ntype === 'containerInstance') {
+      return `${indent}Container(ci_${nid}, "${name}", "${tech}", "${desc}")`;
+    } else if (ntype === 'softwareSystemInstance') {
+      return `${indent}System(si_${nid}, "${name}", "${desc}")`;
     } else {
       return `${indent}System(n_${nid}, "${name}", "${desc}")`;
     }
@@ -887,7 +1349,14 @@ export function exportToPlantUML(ws: Workspace, viewKey?: string | null): string
   }
 
   const renderBoundaryPlantUML = (b: any, indent: string) => {
-    const macro = b.type === 'container' ? 'Container_Boundary' : b.type === 'group' ? 'Boundary' : 'System_Boundary';
+    const macro =
+      b.type === 'deploymentNode'
+        ? 'Deployment_Node'
+        : b.type === 'container'
+        ? 'Container_Boundary'
+        : b.type === 'group'
+        ? 'Boundary'
+        : 'System_Boundary';
     lines.push(`${indent}${macro}(b_${b.id}, "${b.name}") {`);
 
     const nested = pumlChildBoundariesMap.get(b.id) || [];

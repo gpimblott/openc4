@@ -76,12 +76,58 @@ export interface SoftwareSystem extends BaseElement {
   containers: Container[];
 }
 
+export interface HealthCheck {
+  name: string;
+  url: string;
+  interval?: number;
+  timeout?: number;
+}
+
+export interface InfrastructureNode extends BaseElement {
+  technology: string;
+  environment: string;
+  parentNodeId?: string | null;
+}
+
+export interface SoftwareSystemInstance extends BaseElement {
+  softwareSystemId: string;
+  environment: string;
+  instanceId: number;
+  deploymentGroups: string[];
+  healthChecks: HealthCheck[];
+  parentNodeId?: string | null;
+}
+
+export interface ContainerInstance extends BaseElement {
+  containerId: string;
+  environment: string;
+  instanceId: number;
+  deploymentGroups: string[];
+  healthChecks: HealthCheck[];
+  parentNodeId?: string | null;
+}
+
 export interface DeploymentNode extends BaseElement {
   technology: string;
   environment: string;
-  instances: number;
+  instances: number | string;
   children: DeploymentNode[];
   containerInstances: string[];
+  typedContainerInstances?: ContainerInstance[];
+  typedSoftwareSystemInstances?: SoftwareSystemInstance[];
+  infrastructureNodes?: InfrastructureNode[];
+  parentNodeId?: string | null;
+}
+
+export interface DynamicStep {
+  order: number | string;
+  sourceId: string;
+  destinationId: string;
+  sourceIdentifier?: string;
+  destinationIdentifier?: string;
+  description: string;
+  technology?: string;
+  response?: boolean;
 }
 
 export interface View {
@@ -100,6 +146,8 @@ export interface View {
   // Visual layout coordinates saved from UI: element_id -> {x, y}
   layoutCoordinates: Record<string, { x: number; y: number }>;
   lineRange?: { startLine: number; endLine: number };
+  isDefault?: boolean;
+  dynamicSteps?: DynamicStep[];
 }
 
 export interface Model {
@@ -114,6 +162,7 @@ export interface Workspace {
   name: string;
   description: string;
   version?: string | null;
+  defaultView?: string | null;
   model: Model;
   views: View[];
   elementStyles: ElementStyle[];

@@ -11,8 +11,13 @@ import {
   Container,
   Component,
   DeploymentNode,
+  InfrastructureNode,
+  ContainerInstance,
+  SoftwareSystemInstance,
+  HealthCheck,
   Relationship,
   View,
+  DynamicStep,
   ElementStyle,
   RelationshipStyle
 } from './ast.js';
@@ -43,7 +48,7 @@ export class ParseError extends Error {
 }
 
 export interface Token {
-  type: 'IDENTIFIER' | 'STRING' | 'ARROW' | 'LBRACE' | 'RBRACE' | 'EQUALS' | 'EOF';
+  type: 'IDENTIFIER' | 'STRING' | 'ARROW' | 'REMOVE_ARROW' | 'LBRACE' | 'RBRACE' | 'EQUALS' | 'EOF';
   value: string;
   line: number;
   column: number;
@@ -91,7 +96,7 @@ export class Lexer {
       if (!ch) break;
 
       // Whitespace
-      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\n') {
         this.advance();
         continue;
       }
@@ -123,7 +128,7 @@ export class Lexer {
           this.advance();
         }
         if (!closed) {
-          throw new ParseError("Unterminated multi-line comment", startLine, startCol);
+          throw new ParseError('Unterminated multi-line comment', startLine, startCol);
         }
         continue;
       }
@@ -141,6 +146,13 @@ export class Lexer {
       }
       if (ch === '=') {
         tokens.push({ type: 'EQUALS', value: '=', line: this.line, column: this.col });
+        this.advance();
+        continue;
+      }
+      if (ch === '-' && this.peek(1) === '/' && this.peek(2) === '>') {
+        tokens.push({ type: 'REMOVE_ARROW', value: '-/>', line: this.line, column: this.col });
+        this.advance();
+        this.advance();
         this.advance();
         continue;
       }
@@ -191,6 +203,10 @@ export class Lexer {
         while (this.pos < this.length) {
           const c = this.peek();
           if (c && this.isIdentifierChar(c)) {
+            // Do not consume '-' if it forms an arrow operator '->' or '-/>'
+            if (c === '-' && (this.peek(1) === '>' || (this.peek(1) === '/' && this.peek(2) === '>'))) {
+              break;
+            }
             word.push(c);
             this.advance();
           } else {
@@ -198,6 +214,12 @@ export class Lexer {
           }
         }
         tokens.push({ type: 'IDENTIFIER', value: word.join(''), line: startLine, column: startCol });
+        continue;
+      }
+
+      if (ch === '>') {
+        tokens.push({ type: 'IDENTIFIER', value: '>', line: this.line, column: this.col });
+        this.advance();
         continue;
       }
 
@@ -327,24 +349,52 @@ export class Parser {
     return this.workspace;
   }
 
-  private parseStringArgs(sameLineOnly: boolean = true): string[] {
+  private addTags(targetList: string[], args: string[]) {
+    for (const raw of args) {
+      for (const t of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+        if (!targetList.includes(t)) targetList.push(t);
+      }
+    }
+  }
+
+  private parseStringArgs(sameLineOnly: boolean = true, targetLine?: number): string[] {
     const args: string[] = [];
-    const startLine = this.current().line;
+    const prevTok = this.tokens[Math.max(0, this.pos - 1)];
+    const startLine = targetLine ?? (prevTok ? prevTok.line : this.current().line);
     while (
       (this.current().type === 'STRING' || this.current().type === 'IDENTIFIER') &&
-      !['{', '}', '=', '->'].includes(this.current().value)
+      !['{', '}', '=', '->', '-/>'].includes(this.current().value)
     ) {
       const curr = this.current();
-      if (sameLineOnly && curr.line !== startLine && curr.type !== 'STRING') {
+      if (sameLineOnly && curr.line !== startLine) {
         break;
       }
-      if (curr.type === 'IDENTIFIER' && ['ARROW', 'EQUALS'].includes(this.peekNext().type)) {
+      if (curr.type === 'IDENTIFIER' && ['ARROW', 'REMOVE_ARROW', 'EQUALS'].includes(this.peekNext().type)) {
         break;
       }
       args.push(curr.value);
       this.pos += 1;
     }
     return args;
+  }
+
+  private parsePropertiesBody(target: Record<string, string>) {
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        if (curr.type === 'STRING' || curr.type === 'IDENTIFIER') {
+          const key = this.expectStringOrIdentifier();
+          if (this.current().type === 'STRING' || this.current().type === 'IDENTIFIER') {
+            const val = this.expectStringOrIdentifier();
+            target[key] = val;
+          } else {
+            target[key] = '';
+          }
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
   }
 
   private parseWorkspaceBody() {
@@ -380,6 +430,10 @@ export class Parser {
           this.workspace.version = tok.value;
           this.pos += 1;
         }
+        return;
+      } else if (val === 'properties') {
+        this.pos += 1;
+        this.parsePropertiesBody(this.workspace.properties);
         return;
       } else if (val === 'theme' || val === 'themes') {
         this.pos += 1;
@@ -434,11 +488,26 @@ export class Parser {
         this.identifiersMode = 'flat';
       }
       return;
+    } else if (keyword === '!element') {
+      this.pos += 1;
+      const targetIdent = this.expectStringOrIdentifier();
+      this.parseElementExtension(targetIdent);
+      return;
+    } else if (keyword === '!relationship') {
+      this.pos += 1;
+      this.parseRelationshipExtension();
+      return;
     } else if (keyword.startsWith('!')) {
       this.pos += 1;
       while (this.pos < this.tokens.length && this.current().line === nextCurr.line && this.current().type !== 'EOF') {
         this.pos += 1;
       }
+      return;
+    }
+
+    if (keyword === 'properties') {
+      this.pos += 1;
+      this.parsePropertiesBody(this.workspace.properties);
       return;
     }
 
@@ -463,6 +532,28 @@ export class Parser {
       this.pos += 1;
       this.parseSoftwareSystem(identifier, startLine);
       return;
+    } else if (keyword === 'container') {
+      // Tolerate container directly under model by attaching to existing or implicit software system
+      if (this.workspace.model.softwareSystems.length === 0) {
+        const defaultSys: SoftwareSystem = {
+          id: this.getId(),
+          identifier: 'default_system',
+          name: 'System',
+          description: '',
+          location: 'Unspecified',
+          tags: ['Software System', 'Element'],
+          properties: {},
+          containers: []
+        };
+        this.workspace.model.softwareSystems.push(defaultSys);
+        this.idToElement.set(defaultSys.id, defaultSys);
+        this.identifierToId.set(defaultSys.identifier, defaultSys.id);
+        this.identifierToId.set(defaultSys.name, defaultSys.id);
+      }
+      const targetSys = this.workspace.model.softwareSystems[this.workspace.model.softwareSystems.length - 1];
+      this.pos += 1;
+      this.parseContainer(targetSys, identifier, startLine);
+      return;
     } else if (keyword === 'deploymentenvironment') {
       this.pos += 1;
       this.parseDeploymentEnvironment();
@@ -470,9 +561,168 @@ export class Parser {
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
       this.parseRelationship(nextCurr.value, nextCurr.line);
       return;
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+      this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
+      return;
     } else {
       this.pos += 1;
     }
+  }
+
+  private findElementByIdentifier(ident: string): any {
+    const id = this.identifierToId.get(ident) || ident;
+    if (this.idToElement.has(id)) return this.idToElement.get(id);
+
+    for (const p of this.workspace.model.people) {
+      if (p.id === id || p.identifier === ident || p.name === ident) return p;
+    }
+    for (const s of this.workspace.model.softwareSystems) {
+      if (s.id === id || s.identifier === ident || s.name === ident) return s;
+      for (const c of s.containers) {
+        if (c.id === id || c.identifier === ident || c.name === ident) return c;
+        for (const comp of c.components) {
+          if (comp.id === id || comp.identifier === ident || comp.name === ident) return comp;
+        }
+      }
+    }
+    for (const n of this.workspace.model.deploymentNodes) {
+      if (n.id === id || n.identifier === ident || n.name === ident) return n;
+      for (const ch of n.children) {
+        if (ch.id === id || ch.identifier === ident || ch.name === ident) return ch;
+      }
+    }
+    return null;
+  }
+
+  private parseElementExtension(targetIdent: string) {
+    const target =
+      this.idToElement.get(targetIdent) ||
+      this.idToElement.get(this.identifierToId.get(targetIdent) || '') ||
+      this.findElementByIdentifier(targetIdent);
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+
+        if (curr.type === 'ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(targetIdent, dest, curr.line);
+        } else if (curr.type === 'REMOVE_ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(targetIdent, dest);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          this.parseRelationship(curr.value, curr.line);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          if (target) this.addTags(target.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          const tList = this.parseStringArgs();
+          if (target) this.addTags(target.tags, tList);
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(target ? target.properties : {});
+        } else if (kw === 'description') {
+          this.pos += 1;
+          const d = this.expectStringOrIdentifier();
+          if (target) target.description = d;
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          const tech = this.expectStringOrIdentifier();
+          if (target && 'technology' in target) target.technology = tech;
+        } else if (kw === 'url') {
+          this.pos += 1;
+          const u = this.expectStringOrIdentifier();
+          if (target) target.url = u;
+        } else if (kw === 'container' && target && 'containers' in target) {
+          this.pos += 1;
+          this.parseContainer(target as SoftwareSystem, null, curr.line);
+        } else if (kw === 'component' && target && 'components' in target) {
+          this.pos += 1;
+          this.parseComponent(target as Container, null, curr.line);
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+  }
+
+  private parseRelationshipExtension() {
+    let sourceIdent = '';
+    let destIdent = '';
+    const first = this.expectStringOrIdentifier();
+    if (this.match('ARROW')) {
+      sourceIdent = first;
+      destIdent = this.expectStringOrIdentifier();
+    } else {
+      sourceIdent = first;
+    }
+
+    const rel = this.workspace.model.relationships.find((r) =>
+      destIdent
+        ? (r.sourceId === sourceIdent || r.sourceIdentifier === sourceIdent) &&
+          (r.destinationId === destIdent || r.destinationIdentifier === destIdent)
+        : r.id === sourceIdent
+    );
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
+        if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          if (rel) this.addTags(rel.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          const tList = this.parseStringArgs();
+          if (rel) this.addTags(rel.tags, tList);
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(rel ? rel.properties : {});
+        } else if (kw === 'description') {
+          this.pos += 1;
+          const d = this.expectStringOrIdentifier();
+          if (rel) rel.description = d;
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          const tech = this.expectStringOrIdentifier();
+          if (rel) rel.technology = tech;
+        } else if (kw === 'url') {
+          this.pos += 1;
+          const u = this.expectStringOrIdentifier();
+          if (rel) rel.url = u;
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+  }
+
+  private parseRelationshipRemoval(sourceIdent: string, startLine?: number) {
+    this.pos += 1; // consume source identifier
+    this.expect('REMOVE_ARROW');
+    const destIdent = this.expectStringOrIdentifier();
+    this.parseStringArgs(); // optional description or args
+    this.removeRelationship(sourceIdent, destIdent);
+  }
+
+  private removeRelationship(sourceIdent: string, destIdent: string) {
+    const sId = this.identifierToId.get(sourceIdent) || sourceIdent;
+    const dId = this.identifierToId.get(destIdent) || destIdent;
+    this.workspace.model.relationships = this.workspace.model.relationships.filter(
+      (r) =>
+        !(
+          (r.sourceId === sId || r.sourceIdentifier === sourceIdent) &&
+          (r.destinationId === dId || r.destinationIdentifier === destIdent)
+        )
+    );
   }
 
   private parsePerson(identifier: string | null = null, startLine?: number) {
@@ -505,16 +755,32 @@ export class Parser {
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
         const tok = this.current();
+        const kw = tok.type === 'IDENTIFIER' ? tok.value.toLowerCase() : '';
         if (tok.type === 'ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(ident, dest, tok.line);
-        } else if (tok.type === 'IDENTIFIER' && tok.value.toLowerCase() === 'tags') {
+        } else if (tok.type === 'REMOVE_ARROW') {
           this.pos += 1;
-          person.tags.push(...this.parseStringArgs());
-        } else if (tok.type === 'IDENTIFIER' && tok.value.toLowerCase() === 'url') {
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(ident, dest);
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          this.addTags(person.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(person.tags, this.parseStringArgs());
+        } else if (kw === 'description') {
+          this.pos += 1;
+          person.description = this.expectStringOrIdentifier();
+        } else if (kw === 'url') {
           this.pos += 1;
           person.url = this.expectStringOrIdentifier();
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(person.properties);
         } else {
           this.pos += 1;
         }
@@ -594,14 +860,31 @@ export class Parser {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseRelationshipDetails(ident, dest, nextCurr.line);
+    } else if (nextCurr.type === 'REMOVE_ARROW') {
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseStringArgs();
+      this.removeRelationship(ident, dest);
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
       this.parseRelationship(nextCurr.value, nextCurr.line);
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+      this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
+    } else if (kw === 'tag') {
+      this.pos += 1;
+      const t = this.expectStringOrIdentifier();
+      this.addTags(system.tags, [t]);
     } else if (kw === 'tags') {
       this.pos += 1;
-      system.tags.push(...this.parseStringArgs());
+      this.addTags(system.tags, this.parseStringArgs());
+    } else if (kw === 'description') {
+      this.pos += 1;
+      system.description = this.expectStringOrIdentifier();
     } else if (kw === 'url') {
       this.pos += 1;
       system.url = this.expectStringOrIdentifier();
+    } else if (kw === 'properties') {
+      this.pos += 1;
+      this.parsePropertiesBody(system.properties);
     } else {
       this.pos += 1;
     }
@@ -685,14 +968,34 @@ export class Parser {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseRelationshipDetails(containerIdent, dest, nextCurr.line);
+    } else if (nextCurr.type === 'REMOVE_ARROW') {
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseStringArgs();
+      this.removeRelationship(containerIdent, dest);
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
       this.parseRelationship(nextCurr.value, nextCurr.line);
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+      this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
+    } else if (kw === 'tag') {
+      this.pos += 1;
+      const t = this.expectStringOrIdentifier();
+      this.addTags(container.tags, [t]);
     } else if (kw === 'tags') {
       this.pos += 1;
-      container.tags.push(...this.parseStringArgs());
+      this.addTags(container.tags, this.parseStringArgs());
+    } else if (kw === 'description') {
+      this.pos += 1;
+      container.description = this.expectStringOrIdentifier();
+    } else if (kw === 'technology') {
+      this.pos += 1;
+      container.technology = this.expectStringOrIdentifier();
     } else if (kw === 'url') {
       this.pos += 1;
       container.url = this.expectStringOrIdentifier();
+    } else if (kw === 'properties') {
+      this.pos += 1;
+      this.parsePropertiesBody(container.properties);
     } else {
       this.pos += 1;
     }
@@ -751,15 +1054,39 @@ export class Parser {
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
         const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
         if (curr.type === 'ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(componentIdent, dest, curr.line);
+        } else if (curr.type === 'REMOVE_ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(componentIdent, dest);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
           this.parseRelationship(curr.value, curr.line);
-        } else if (curr.type === 'IDENTIFIER' && curr.value.toLowerCase() === 'tags') {
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
+        } else if (kw === 'tag') {
           this.pos += 1;
-          component.tags.push(...this.parseStringArgs());
+          const t = this.expectStringOrIdentifier();
+          this.addTags(component.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(component.tags, this.parseStringArgs());
+        } else if (kw === 'description') {
+          this.pos += 1;
+          component.description = this.expectStringOrIdentifier();
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          component.technology = this.expectStringOrIdentifier();
+        } else if (kw === 'url') {
+          this.pos += 1;
+          component.url = this.expectStringOrIdentifier();
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(component.properties);
         } else {
           this.pos += 1;
         }
@@ -780,10 +1107,25 @@ export class Parser {
   }
 
   private parseDeploymentEnvironmentBody(envName: string) {
-    const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
+    const curr = this.current();
+    if (curr.type === 'RBRACE' || curr.type === 'EOF') return;
+
+    let identifier: string | null = null;
+    let startLine = curr.line;
+    if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
+      identifier = curr.value;
+      startLine = curr.line;
+      this.pos += 2;
+    }
+
+    const nextCurr = this.current();
+    const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
     if (kw === 'deploymentnode') {
       this.pos += 1;
-      this.parseDeploymentNode(envName);
+      this.parseDeploymentNode(envName, null, identifier, startLine);
+    } else if (kw === 'infrastructurenode') {
+      this.pos += 1;
+      this.parseInfrastructureNode(envName, null, identifier, startLine);
     } else if (kw === 'group') {
       this.pos += 1;
       const groupName = this.expectStringOrIdentifier();
@@ -794,52 +1136,351 @@ export class Parser {
         this.parseDeploymentEnvironmentBody(envName);
       }
       this.currentGroup = prevGroup;
+    } else if (kw === 'deploymentgroup') {
+      this.pos += 1;
+      this.parseStringArgs();
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+      this.parseRelationship(nextCurr.value, nextCurr.line);
+    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+      this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
     } else {
       this.pos += 1;
     }
   }
 
-  private parseDeploymentNode(envName: string) {
-    const startLine = this.current().line;
+  private parseDeploymentNode(
+    envName: string,
+    parentNodeId: string | null = null,
+    identifier: string | null = null,
+    startLine?: number
+  ): DeploymentNode {
+    const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
     const name = args.length > 0 ? args[0] : 'Deployment Node';
     const desc = args.length > 1 ? args[1] : '';
     const tech = args.length > 2 ? args[2] : '';
+    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const instances = args.length > 4 ? args[4] : 1;
+
+    if (!tags.includes('Deployment Node')) tags.unshift('Deployment Node');
+    if (!tags.includes('Element')) tags.push('Element');
 
     const eid = this.getId();
+    const ident = identifier || name.toLowerCase().replace(/ /g, '_');
     const node: DeploymentNode = {
       id: eid,
-      identifier: name.toLowerCase().replace(/ /g, '_'),
+      identifier: ident,
       name,
       description: desc,
       technology: tech,
       environment: envName,
-      instances: 1,
+      instances,
       children: [],
       containerInstances: [],
-      tags: ['Deployment Node', 'Element'],
+      typedContainerInstances: [],
+      typedSoftwareSystemInstances: [],
+      infrastructureNodes: [],
+      parentNodeId,
+      tags,
       properties: {},
       group: this.currentGroup || undefined
     };
 
-    this.identifierToId.set(node.identifier, eid);
-    this.workspace.model.deploymentNodes.push(node);
+    this.identifierToId.set(ident, eid);
+    this.identifierToId.set(name, eid);
+    this.idToElement.set(eid, node);
 
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
-        const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
-        if (kw === 'containerinstance' || kw === 'softwareinstance') {
+        let childIdent: string | null = null;
+        let cStartLine = this.current().line;
+        if (this.current().type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
+          childIdent = this.current().value;
+          cStartLine = this.current().line;
+          this.pos += 2;
+        }
+
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+        if (kw === 'deploymentnode') {
           this.pos += 1;
-          const target = this.expectStringOrIdentifier();
-          node.containerInstances.push(target);
+          const childNode = this.parseDeploymentNode(envName, node.id, childIdent, cStartLine);
+          node.children.push(childNode);
+        } else if (kw === 'infrastructurenode') {
+          this.pos += 1;
+          const infra = this.parseInfrastructureNode(envName, node.id, childIdent, cStartLine);
+          if (!node.infrastructureNodes) node.infrastructureNodes = [];
+          node.infrastructureNodes.push(infra);
+        } else if (kw === 'containerinstance' || kw === 'instanceof') {
+          this.pos += 1;
+          this.parseContainerInstance(node, envName);
+        } else if (kw === 'softwareinstance' || kw === 'softwaresysteminstance') {
+          this.pos += 1;
+          this.parseSoftwareSystemInstance(node, envName);
+        } else if (kw === 'instances') {
+          this.pos += 1;
+          node.instances = this.expectStringOrIdentifier();
+        } else if (kw === 'description') {
+          this.pos += 1;
+          node.description = this.expectStringOrIdentifier();
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          node.technology = this.expectStringOrIdentifier();
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          this.addTags(node.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(node.tags, this.parseStringArgs());
+        } else if (kw === 'url') {
+          this.pos += 1;
+          node.url = this.expectStringOrIdentifier();
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(node.properties);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          this.parseRelationship(curr.value, curr.line);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
         } else {
           this.pos += 1;
         }
       }
     }
 
-    const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? startLine;
-    node.lineRange = { startLine, endLine };
+    const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? sLine;
+    node.lineRange = { startLine: sLine, endLine };
+
+    if (!parentNodeId) {
+      this.workspace.model.deploymentNodes.push(node);
+    }
+
+    return node;
+  }
+
+  private parseInfrastructureNode(
+    envName: string,
+    parentNodeId: string | null = null,
+    identifier: string | null = null,
+    startLine?: number
+  ): InfrastructureNode {
+    const sLine = startLine ?? this.current().line;
+    const args = this.parseStringArgs();
+    const name = args.length > 0 ? args[0] : 'Infrastructure Node';
+    const desc = args.length > 1 ? args[1] : '';
+    const tech = args.length > 2 ? args[2] : '';
+    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+
+    if (!tags.includes('Infrastructure Node')) tags.unshift('Infrastructure Node');
+    if (!tags.includes('Element')) tags.push('Element');
+
+    const eid = this.getId();
+    const ident = identifier || name.toLowerCase().replace(/ /g, '_');
+    const infra: InfrastructureNode = {
+      id: eid,
+      identifier: ident,
+      name,
+      description: desc,
+      technology: tech,
+      environment: envName,
+      parentNodeId,
+      tags,
+      properties: {},
+      group: this.currentGroup || undefined
+    };
+
+    this.identifierToId.set(ident, eid);
+    this.identifierToId.set(name, eid);
+    this.idToElement.set(eid, infra);
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+        if (kw === 'description') {
+          this.pos += 1;
+          infra.description = this.expectStringOrIdentifier();
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          infra.technology = this.expectStringOrIdentifier();
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          this.addTags(infra.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(infra.tags, this.parseStringArgs());
+        } else if (kw === 'url') {
+          this.pos += 1;
+          infra.url = this.expectStringOrIdentifier();
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(infra.properties);
+        } else if (curr.type === 'ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(ident, dest, curr.line);
+        } else if (curr.type === 'REMOVE_ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(ident, dest);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          this.parseRelationship(curr.value, curr.line);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+
+    const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? sLine;
+    infra.lineRange = { startLine: sLine, endLine };
+    return infra;
+  }
+
+  private parseContainerInstance(node: DeploymentNode, envName: string) {
+    const sLine = this.current().line;
+    const target = this.expectStringOrIdentifier();
+    const args = this.parseStringArgs();
+    const groups = args.length > 0 ? args[0].split(',').map((g) => g.trim()) : [];
+    const tags = args.length > 1 ? args[1].split(',').map((t) => t.trim()) : [];
+
+    node.containerInstances.push(target);
+
+    const eid = this.getId();
+    const instanceId = (node.typedContainerInstances?.length || 0) + 1;
+    const cInst: ContainerInstance = {
+      id: eid,
+      identifier: `${target}_instance_${instanceId}`,
+      name: `${target} [Instance ${instanceId}]`,
+      description: '',
+      containerId: target,
+      environment: envName,
+      instanceId,
+      deploymentGroups: groups,
+      healthChecks: [],
+      parentNodeId: node.id,
+      tags: ['Container Instance', 'Element', ...tags],
+      properties: {}
+    };
+
+    if (!node.typedContainerInstances) node.typedContainerInstances = [];
+    node.typedContainerInstances.push(cInst);
+    this.idToElement.set(eid, cInst);
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+        if (kw === 'healthcheck') {
+          this.pos += 1;
+          const hName = this.expectStringOrIdentifier();
+          const hUrl = this.expectStringOrIdentifier();
+          const hArgs = this.parseStringArgs();
+          const interval = hArgs[0] ? parseInt(hArgs[0], 10) : undefined;
+          const timeout = hArgs[1] ? parseInt(hArgs[1], 10) : undefined;
+          cInst.healthChecks.push({ name: hName, url: hUrl, interval, timeout });
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(cInst.properties);
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          this.addTags(cInst.tags, [this.expectStringOrIdentifier()]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(cInst.tags, this.parseStringArgs());
+        } else if (curr.type === 'ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(cInst.identifier, dest, curr.line);
+        } else if (curr.type === 'REMOVE_ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(cInst.identifier, dest);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          this.parseRelationship(curr.value, curr.line);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+  }
+
+  private parseSoftwareSystemInstance(node: DeploymentNode, envName: string) {
+    const sLine = this.current().line;
+    const target = this.expectStringOrIdentifier();
+    const args = this.parseStringArgs();
+    const groups = args.length > 0 ? args[0].split(',').map((g) => g.trim()) : [];
+    const tags = args.length > 1 ? args[1].split(',').map((t) => t.trim()) : [];
+
+    node.containerInstances.push(target);
+
+    const eid = this.getId();
+    const instanceId = (node.typedSoftwareSystemInstances?.length || 0) + 1;
+    const sInst: SoftwareSystemInstance = {
+      id: eid,
+      identifier: `${target}_instance_${instanceId}`,
+      name: `${target} [Instance ${instanceId}]`,
+      description: '',
+      softwareSystemId: target,
+      environment: envName,
+      instanceId,
+      deploymentGroups: groups,
+      healthChecks: [],
+      parentNodeId: node.id,
+      tags: ['Software System Instance', 'Element', ...tags],
+      properties: {}
+    };
+
+    if (!node.typedSoftwareSystemInstances) node.typedSoftwareSystemInstances = [];
+    node.typedSoftwareSystemInstances.push(sInst);
+    this.idToElement.set(eid, sInst);
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+        if (kw === 'healthcheck') {
+          this.pos += 1;
+          const hName = this.expectStringOrIdentifier();
+          const hUrl = this.expectStringOrIdentifier();
+          const hArgs = this.parseStringArgs();
+          const interval = hArgs[0] ? parseInt(hArgs[0], 10) : undefined;
+          const timeout = hArgs[1] ? parseInt(hArgs[1], 10) : undefined;
+          sInst.healthChecks.push({ name: hName, url: hUrl, interval, timeout });
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(sInst.properties);
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          this.addTags(sInst.tags, [this.expectStringOrIdentifier()]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(sInst.tags, this.parseStringArgs());
+        } else if (curr.type === 'ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(sInst.identifier, dest, curr.line);
+        } else if (curr.type === 'REMOVE_ARROW') {
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseStringArgs();
+          this.removeRelationship(sInst.identifier, dest);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          this.parseRelationship(curr.value, curr.line);
+        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(curr.value, curr.line);
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
   }
 
   private parseRelationship(sourceIdent: string, startLine?: number) {
@@ -876,12 +1517,25 @@ export class Parser {
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
         const kw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
-        if (kw === 'tags') {
+        if (kw === 'tag') {
           this.pos += 1;
-          rel.tags.push(...this.parseStringArgs());
+          const t = this.expectStringOrIdentifier();
+          this.addTags(rel.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(rel.tags, this.parseStringArgs());
+        } else if (kw === 'description') {
+          this.pos += 1;
+          rel.description = this.expectStringOrIdentifier();
+        } else if (kw === 'technology') {
+          this.pos += 1;
+          rel.technology = this.expectStringOrIdentifier();
         } else if (kw === 'url') {
           this.pos += 1;
           rel.url = this.expectStringOrIdentifier();
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(rel.properties);
         } else {
           this.pos += 1;
         }
@@ -900,7 +1554,7 @@ export class Parser {
 
     const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
     const vStartLine = curr.line;
-    if (['systemlandscape', 'systemcontext', 'container', 'component', 'dynamic', 'deployment'].includes(kw)) {
+    if (['systemlandscape', 'systemcontext', 'container', 'component', 'dynamic', 'deployment', 'filtered'].includes(kw)) {
       this.pos += 1;
       this.parseView(kw, vStartLine);
       return;
@@ -920,17 +1574,92 @@ export class Parser {
     }
   }
 
+  private parseViewExpressions(): string[] {
+    const expressions: string[] = [];
+    const startLine = this.current().line;
+    while (
+      this.current().type !== 'EOF' &&
+      this.current().type !== 'RBRACE' &&
+      this.current().type !== 'LBRACE' &&
+      this.current().line === startLine
+    ) {
+      const curr = this.current();
+
+      // Check for incoming arrow: ->element
+      if (curr.type === 'ARROW') {
+        this.pos += 1;
+        if (this.current().type === 'IDENTIFIER' || this.current().type === 'STRING') {
+          const target = this.expectStringOrIdentifier();
+          expressions.push(`->${target}`);
+        }
+        continue;
+      }
+
+      // Check for string expression: "element.tag == Core"
+      if (curr.type === 'STRING') {
+        expressions.push(curr.value);
+        this.pos += 1;
+        continue;
+      }
+
+      // Check for identifier or expressions
+      if (curr.type === 'IDENTIFIER') {
+        const idVal = curr.value;
+        this.pos += 1;
+
+        // Check if followed by -> (outgoing: elem->, or specific: elem -> elem2)
+        if (this.current().type === 'ARROW' && this.current().line === startLine) {
+          this.pos += 1;
+          if (
+            (this.current().type === 'IDENTIFIER' || this.current().type === 'STRING') &&
+            this.current().line === startLine
+          ) {
+            const destVal = this.expectStringOrIdentifier();
+            expressions.push(`${idVal}->${destVal}`);
+          } else {
+            expressions.push(`${idVal}->`);
+          }
+          continue;
+        }
+
+        // Check if followed by == or != (e.g. element.tag == X)
+        if (this.current().type === 'EQUALS' && this.peekNext().type === 'EQUALS') {
+          this.pos += 2;
+          const val = this.expectStringOrIdentifier();
+          expressions.push(`${idVal} == ${val}`);
+          continue;
+        }
+
+        expressions.push(idVal);
+        continue;
+      }
+
+      this.pos += 1;
+    }
+    return expressions;
+  }
+
   private parseView(viewType: string, startLine?: number) {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
     let targetRef: string | null = null;
     let key: string | null = null;
     let desc = '';
+    let env: string | null = null;
 
     if (['systemcontext', 'container', 'component'].includes(viewType)) {
       if (args.length > 0) targetRef = args[0];
       if (args.length > 1) key = args[1];
       if (args.length > 2) desc = args[2];
+    } else if (viewType === 'deployment') {
+      targetRef = args.length > 0 && args[0] !== '*' ? args[0] : null;
+      env = args.length > 1 ? args[1] : 'Default';
+      key = args.length > 2 ? args[2] : (targetRef ? `${targetRef}-${env}-Deployment` : `${env}-Deployment`);
+      desc = args.length > 3 ? args[3] : '';
+    } else if (viewType === 'dynamic') {
+      targetRef = args.length > 0 && args[0] !== '*' ? args[0] : null;
+      key = args.length > 1 ? args[1] : `dynamic_${this.workspace.views.length + 1}`;
+      desc = args.length > 2 ? args[2] : '';
     } else {
       if (args.length > 0) key = args[0];
       if (args.length > 1) desc = args[1];
@@ -945,32 +1674,54 @@ export class Parser {
       viewType,
       title: key,
       description: desc,
+      softwareSystemId: ['systemcontext', 'container', 'deployment'].includes(viewType) ? targetRef : null,
+      containerId: viewType === 'component' ? targetRef : null,
+      environment: env,
       includeAll: false,
       includedElementIds: [],
       excludedElementIds: [],
       properties: {},
-      layoutCoordinates: {}
+      layoutCoordinates: {},
+      dynamicSteps: viewType === 'dynamic' ? [] : undefined
     };
-
-    if (['systemcontext', 'container'].includes(viewType)) {
-      view.softwareSystemId = targetRef;
-    } else if (viewType === 'component') {
-      view.containerId = targetRef;
-    }
 
     if (this.match('LBRACE')) {
       while (!this.match('RBRACE') && !this.match('EOF')) {
-        const vkw = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
+        const curr = this.current();
+        const vkw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+
+        // Check dynamic step in dynamic view: source -> destination "description" [technology]
+        if (viewType === 'dynamic' && curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+          const sIdent = curr.value;
+          this.pos += 2; // consume identifier and ARROW
+          const dIdent = this.expectStringOrIdentifier();
+          const stepArgs = this.parseStringArgs();
+          const stepDesc = stepArgs[0] || '';
+          const stepTech = stepArgs[1] || '';
+          if (!view.dynamicSteps) view.dynamicSteps = [];
+          view.dynamicSteps.push({
+            order: view.dynamicSteps.length + 1,
+            sourceId: sIdent,
+            destinationId: dIdent,
+            sourceIdentifier: sIdent,
+            destinationIdentifier: dIdent,
+            description: stepDesc,
+            technology: stepTech
+          });
+          continue;
+        }
+
         if (vkw === 'include') {
           this.pos += 1;
-          const iargs = this.parseStringArgs();
-          if (iargs.includes('*')) {
+          const exprs = this.parseViewExpressions();
+          if (exprs.includes('*')) {
             view.includeAll = true;
           }
-          view.includedElementIds.push(...iargs);
+          view.includedElementIds.push(...exprs);
         } else if (vkw === 'exclude') {
           this.pos += 1;
-          view.excludedElementIds.push(...this.parseStringArgs());
+          const exprs = this.parseViewExpressions();
+          view.excludedElementIds.push(...exprs);
         } else if (vkw === 'autolayout') {
           this.pos += 1;
           const layoutArgs = this.parseStringArgs();
@@ -981,6 +1732,13 @@ export class Parser {
         } else if (vkw === 'description') {
           this.pos += 1;
           view.description = this.expectStringOrIdentifier();
+        } else if (vkw === 'default') {
+          this.pos += 1;
+          view.isDefault = true;
+          this.workspace.defaultView = view.key;
+        } else if (vkw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(view.properties);
         } else {
           this.pos += 1;
         }
@@ -1062,6 +1820,33 @@ export class Parser {
       }
     }
 
+    const resolveDeploymentNodeReferences = (node: DeploymentNode) => {
+      node.containerInstances = node.containerInstances.map((ci) =>
+        this.identifierToId.has(ci) ? this.identifierToId.get(ci)! : ci
+      );
+      if (node.typedContainerInstances) {
+        for (const ci of node.typedContainerInstances) {
+          if (this.identifierToId.has(ci.containerId)) {
+            ci.containerId = this.identifierToId.get(ci.containerId)!;
+          }
+        }
+      }
+      if (node.typedSoftwareSystemInstances) {
+        for (const si of node.typedSoftwareSystemInstances) {
+          if (this.identifierToId.has(si.softwareSystemId)) {
+            si.softwareSystemId = this.identifierToId.get(si.softwareSystemId)!;
+          }
+        }
+      }
+      for (const child of node.children) {
+        resolveDeploymentNodeReferences(child);
+      }
+    };
+
+    for (const node of this.workspace.model.deploymentNodes) {
+      resolveDeploymentNodeReferences(node);
+    }
+
     for (const view of this.workspace.views) {
       if (view.softwareSystemId && this.identifierToId.has(view.softwareSystemId)) {
         view.softwareSystemId = this.identifierToId.get(view.softwareSystemId)!;
@@ -1070,33 +1855,43 @@ export class Parser {
         view.containerId = this.identifierToId.get(view.containerId)!;
       }
 
-      const resolvedIncluded: string[] = [];
-      for (const item of view.includedElementIds) {
-        if (item === '*') {
-          resolvedIncluded.push('*');
-        } else if (this.identifierToId.has(item)) {
-          resolvedIncluded.push(this.identifierToId.get(item)!);
-        } else {
-          resolvedIncluded.push(item);
+      const resolveExpr = (item: string): string => {
+        if (item === '*') return '*';
+        if (item.startsWith('->')) {
+          const target = item.slice(2);
+          const resolved = this.identifierToId.get(target) || target;
+          return `->${resolved}`;
         }
-      }
-      view.includedElementIds = resolvedIncluded;
-
-      const resolvedExcluded: string[] = [];
-      for (const item of view.excludedElementIds) {
+        if (item.endsWith('->')) {
+          const target = item.slice(0, -2);
+          const resolved = this.identifierToId.get(target) || target;
+          return `${resolved}->`;
+        }
+        if (item.includes('->')) {
+          const parts = item.split('->');
+          const r0 = this.identifierToId.get(parts[0]) || parts[0];
+          const r1 = this.identifierToId.get(parts[1]) || parts[1];
+          return `${r0}->${r1}`;
+        }
         if (this.identifierToId.has(item)) {
-          resolvedExcluded.push(this.identifierToId.get(item)!);
-        } else {
-          resolvedExcluded.push(item);
+          return this.identifierToId.get(item)!;
+        }
+        return item;
+      };
+
+      view.includedElementIds = view.includedElementIds.map(resolveExpr);
+      view.excludedElementIds = view.excludedElementIds.map(resolveExpr);
+
+      if (view.dynamicSteps) {
+        for (const step of view.dynamicSteps) {
+          if (this.identifierToId.has(step.sourceId)) {
+            step.sourceId = this.identifierToId.get(step.sourceId)!;
+          }
+          if (this.identifierToId.has(step.destinationId)) {
+            step.destinationId = this.identifierToId.get(step.destinationId)!;
+          }
         }
       }
-      view.excludedElementIds = resolvedExcluded;
-    }
-
-    for (const node of this.workspace.model.deploymentNodes) {
-      node.containerInstances = node.containerInstances.map((ci) =>
-        this.identifierToId.has(ci) ? this.identifierToId.get(ci)! : ci
-      );
     }
   }
 }
