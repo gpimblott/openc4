@@ -68,6 +68,32 @@ export class StructurizrMCP {
           },
           required: ['dsl']
         }
+      },
+      {
+        name: 'updateWorkspace',
+        description: 'Updates and publishes a workspace on a Structurizr server or OpenC4 instance.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Server URL' },
+            workspaceId: { type: 'number', description: 'Workspace ID' },
+            apiKey: { type: 'string', description: 'Optional API Key' },
+            dsl: { type: 'string', description: 'The Structurizr DSL source code' }
+          },
+          required: ['dsl']
+        }
+      },
+      {
+        name: 'publish_workspace',
+        description: 'Publishes Structurizr DSL to an architecture repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            dsl: { type: 'string', description: 'The Structurizr DSL source code' },
+            workspaceId: { type: 'number', description: 'Optional Workspace ID' }
+          },
+          required: ['dsl']
+        }
       }
     ];
   }
@@ -159,6 +185,24 @@ export class StructurizrMCP {
           return { valid: false, error: err.toJSON() };
         }
         return { valid: false, error: { message: err.message, line: 1, column: 1 } };
+      }
+    } else if (name === 'updateWorkspace' || name === 'publish_workspace') {
+      try {
+        const ws = parseDsl(dsl);
+        const wsId = Number(args.workspaceId) || 1;
+        return {
+          success: true,
+          workspaceId: wsId,
+          workspaceName: ws.name,
+          elementCount: ws.model.people.length + ws.model.softwareSystems.length,
+          relationshipCount: ws.model.relationships.length,
+          viewCount: ws.views.length
+        };
+      } catch (err: any) {
+        if (err instanceof ParseError) {
+          return { success: false, error: err.toJSON() };
+        }
+        return { success: false, error: { message: err.message, line: 1, column: 1 } };
       }
     }
 

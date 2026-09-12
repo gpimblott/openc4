@@ -478,6 +478,91 @@ system = softwareSystem "Valid System" {
     expect(data.error.line).toBe(4);
   });
 
+  it('tests connection to local Structurizr via /api/structurizr/test-connection', async () => {
+    const res1 = await app.request('/api/structurizr/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'http://localhost:8000/mcp' })
+    });
+    expect(res1.status).toBe(200);
+    const data1 = await res1.json();
+    expect(data1.connected).toBe(true);
+
+    const res2 = await app.request('/api/structurizr/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'http://localhost:8080' })
+    });
+    expect(res2.status).toBe(200);
+    const data2 = await res2.json();
+    expect(data2.connected).toBe(true);
+  });
+
+  it('publishes valid DSL via /api/structurizr/publish', async () => {
+    const res = await app.request('/api/structurizr/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000',
+        workspaceId: 1,
+        dsl: DEFAULT_SAMPLE_DSL
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.workspaceName).toBe('Big Bank plc');
+    expect(data.elementCount).toBeGreaterThan(0);
+    expect(data.relationshipCount).toBeGreaterThan(0);
+  });
+
+  it('returns parse errors when publishing invalid DSL via /api/structurizr/publish', async () => {
+    const invalidDsl = `workspace "Bad" {
+      model {
+        broken = softwareSystem "Unterminated
+      }
+    }`;
+    const res = await app.request('/api/structurizr/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000',
+        dsl: invalidDsl
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(false);
+    expect(data.error).toBeDefined();
+    expect(data.error.message).toBeDefined();
+  });
+
+  it('supports multi-file resolution in /api/structurizr/publish', async () => {
+    const files = {
+      'workspace.dsl': `workspace "MultiPublish" {
+  model {
+    !include systems.dsl
+  }
+}`,
+      'systems.dsl': `system = softwareSystem "Valid System"`
+    };
+
+    const res = await app.request('/api/structurizr/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000',
+        workspaceId: 2,
+        files,
+        entryPoint: 'workspace.dsl'
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.workspaceName).toBe('MultiPublish');
+  });
+
   it('compiles component view in multi-file workspace and preserves nested components and view metadata', async () => {
     const files = {
       'workspace.dsl': `workspace "OpenC4" {

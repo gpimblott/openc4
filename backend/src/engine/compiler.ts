@@ -6,6 +6,7 @@
  */
 
 import { Workspace, View, Relationship, DeploymentNode } from './ast.js';
+import { resolveThemesSync } from './themes.js';
 
 export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   // Build relationships lookup by source ID
@@ -20,8 +21,14 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       interactionStyle: rel.interactionStyle,
       tags: rel.tags.length > 0 ? rel.tags.join(',') : 'Relationship'
     };
+    if (rel.archetype) {
+      rJson.archetype = rel.archetype;
+    }
     if (rel.linkedRelationshipId) {
       rJson.linkedRelationshipId = rel.linkedRelationshipId;
+    }
+    if (rel.perspectives && rel.perspectives.length > 0) {
+      rJson.perspectives = rel.perspectives;
     }
     if (!relsBySource[rel.sourceId]) {
       relsBySource[rel.sourceId] = [];
@@ -39,6 +46,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       location: p.location,
       tags: p.tags.length > 0 ? p.tags.join(',') : 'Element,Person'
     };
+    if (p.archetype) {
+      pData.archetype = p.archetype;
+    }
     if (relsBySource[p.id]) {
       pData.relationships = relsBySource[p.id];
     }
@@ -47,6 +57,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     }
     if (p.group) {
       pData.group = p.group;
+    }
+    if (p.perspectives && p.perspectives.length > 0) {
+      pData.perspectives = p.perspectives;
     }
     peopleJson.push(pData);
   }
@@ -65,11 +78,17 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
           technology: comp.technology,
           tags: comp.tags.length > 0 ? comp.tags.join(',') : 'Element,Component'
         };
+        if (comp.archetype) {
+          compData.archetype = comp.archetype;
+        }
         if (relsBySource[comp.id]) {
           compData.relationships = relsBySource[comp.id];
         }
         if (comp.group) {
           compData.group = comp.group;
+        }
+        if (comp.perspectives && comp.perspectives.length > 0) {
+          compData.perspectives = comp.perspectives;
         }
         componentsJson.push(compData);
       }
@@ -82,11 +101,17 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
         tags: c.tags.length > 0 ? c.tags.join(',') : 'Element,Container',
         components: componentsJson
       };
+      if (c.archetype) {
+        cData.archetype = c.archetype;
+      }
       if (relsBySource[c.id]) {
         cData.relationships = relsBySource[c.id];
       }
       if (c.group) {
         cData.group = c.group;
+      }
+      if (c.perspectives && c.perspectives.length > 0) {
+        cData.perspectives = c.perspectives;
       }
       containersJson.push(cData);
     }
@@ -99,13 +124,36 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       tags: s.tags.length > 0 ? s.tags.join(',') : 'Element,Software System',
       containers: containersJson
     };
+    if (s.archetype) {
+      sData.archetype = s.archetype;
+    }
     if (s.group) {
       sData.group = s.group;
     }
     if (relsBySource[s.id]) {
       sData.relationships = relsBySource[s.id];
     }
+    if (s.perspectives && s.perspectives.length > 0) {
+      sData.perspectives = s.perspectives;
+    }
     systemsJson.push(sData);
+  }
+
+  // Custom Elements
+  const customElementsJson: any[] = [];
+  for (const e of ws.model.customElements || []) {
+    const eData: Record<string, any> = {
+      id: e.id,
+      name: e.name,
+      description: e.description,
+      tags: e.tags.length > 0 ? e.tags.join(',') : 'Element'
+    };
+    if (e.metadata) eData.metadata = e.metadata;
+    if (e.archetype) eData.archetype = e.archetype;
+    if (e.url) eData.url = e.url;
+    if (e.properties && Object.keys(e.properties).length > 0) eData.properties = e.properties;
+    if (relsBySource[e.id]) eData.relationships = relsBySource[e.id];
+    customElementsJson.push(eData);
   }
 
   // Views
@@ -115,8 +163,22 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   const systemLandscapeViews: any[] = [];
   const deploymentViews: any[] = [];
   const dynamicViews: any[] = [];
+  const filteredViewsJson: any[] = [];
 
   for (const v of ws.views) {
+    if (v.viewType === 'filtered') {
+      const fData: Record<string, any> = {
+        key: v.key,
+        baseViewKey: v.baseViewKey,
+        description: v.description,
+        title: v.title,
+        mode: (v.filterMode || 'include').toLowerCase() === 'exclude' ? 'Exclude' : 'Include',
+        tags: v.filterTags || []
+      };
+      filteredViewsJson.push(fData);
+      continue;
+    }
+
     const vData: Record<string, any> = {
       key: v.key,
       description: v.description,
@@ -173,7 +235,14 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     if (es.background) sDict.background = es.background;
     if (es.color) sDict.color = es.color;
     if (es.stroke) sDict.stroke = es.stroke;
+    if (es.strokeWidth !== undefined && es.strokeWidth !== null) sDict.strokeWidth = es.strokeWidth;
     if (es.fontSize) sDict.fontSize = es.fontSize;
+    if (es.width !== undefined && es.width !== null) sDict.width = es.width;
+    if (es.height !== undefined && es.height !== null) sDict.height = es.height;
+    if (es.border) sDict.border = es.border;
+    if (es.opacity !== undefined && es.opacity !== null) sDict.opacity = es.opacity;
+    if (es.icon) sDict.icon = es.icon;
+    if (es.mode) sDict.mode = es.mode;
     elementStylesJson.push(sDict);
   }
 
@@ -185,6 +254,8 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     if (rs.style) rDict.style = rs.style;
     if (rs.routing) rDict.routing = rs.routing;
     if (rs.dashed !== undefined && rs.dashed !== null) rDict.dashed = rs.dashed;
+    if (rs.opacity !== undefined && rs.opacity !== null) rDict.opacity = rs.opacity;
+    if (rs.mode) rDict.mode = rs.mode;
     relStylesJson.push(rDict);
   }
 
@@ -199,7 +270,13 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     model: {
       people: peopleJson,
       softwareSystems: systemsJson,
-      deploymentNodes: []
+      deploymentNodes: [],
+      ...(ws.model.archetypes && (Object.keys(ws.model.archetypes.elements).length > 0 || Object.keys(ws.model.archetypes.relationships).length > 0)
+        ? { archetypes: ws.model.archetypes }
+        : ws.archetypes && (Object.keys(ws.archetypes.elements).length > 0 || Object.keys(ws.archetypes.relationships).length > 0)
+        ? { archetypes: ws.archetypes }
+        : {}),
+      ...(customElementsJson.length > 0 ? { customElements: customElementsJson } : {})
     },
     views: {
       systemLandscapeViews,
@@ -208,12 +285,14 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       componentViews,
       deploymentViews,
       dynamicViews,
+      filteredViews: filteredViewsJson,
       configuration: {
         styles: {
           elements: elementStylesJson,
           relationships: relStylesJson
         },
         themes: ws.themes,
+        ...(ws.terminology ? { terminology: ws.terminology } : {}),
         ...(ws.impliedRelationships !== undefined && ws.impliedRelationships !== false
           ? {
               impliedRelationshipsStrategy:
@@ -436,6 +515,9 @@ function applyExclusionExpressions(
 }
 
 export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Record<string, any> {
+  // Synchronously resolve offline / cached themes
+  resolveThemesSync(ws);
+
   let view: View | undefined;
   if (viewKey) {
     view = ws.views.find((v) => v.key === viewKey);
@@ -445,6 +527,15 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   }
   if (!view && ws.views.length > 0) {
     view = ws.views.find((v) => v.isDefault) || ws.views[0];
+  }
+
+  const isFilteredView = view?.viewType === 'filtered';
+  let effectiveBaseView = view;
+  if (isFilteredView && view?.baseViewKey) {
+    const base = ws.views.find((v) => v.key === view.baseViewKey);
+    if (base) {
+      effectiveBaseView = base;
+    }
   }
 
   // Map all elements by ID
@@ -461,7 +552,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       technology: '',
       tags: p.tags,
       parentId: null,
-      group: p.group || null
+      group: p.group || null,
+      perspectives: p.perspectives || []
     };
   }
 
@@ -475,7 +567,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       technology: '',
       tags: s.tags,
       parentId: null,
-      group: s.group || null
+      group: s.group || null,
+      perspectives: s.perspectives || []
     };
     for (const c of s.containers) {
       allElements[c.id] = {
@@ -487,7 +580,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         technology: c.technology,
         tags: c.tags,
         parentId: s.id,
-        group: c.group || null
+        group: c.group || null,
+        perspectives: c.perspectives || []
       };
       parentMap[c.id] = s.id;
       for (const comp of c.components) {
@@ -500,10 +594,29 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           technology: comp.technology,
           tags: comp.tags,
           parentId: c.id,
-          group: comp.group || null
+          group: comp.group || null,
+          perspectives: comp.perspectives || []
         };
         parentMap[comp.id] = c.id;
       }
+    }
+  }
+
+  if (ws.model.customElements) {
+    for (const e of ws.model.customElements) {
+      allElements[e.id] = {
+        id: e.id,
+        identifier: e.identifier,
+        type: 'element',
+        name: e.name,
+        description: e.description,
+        technology: '',
+        metadata: e.metadata || '',
+        tags: e.tags,
+        parentId: null,
+        group: e.group || null,
+        perspectives: e.perspectives || []
+      };
     }
   }
 
@@ -544,8 +657,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   };
 
   // If view is deployment, register deployment nodes, infrastructure nodes, and instances
-  const isDeploymentView = view?.viewType === 'deployment';
-  const targetEnvironment = view?.environment?.toLowerCase() || '';
+  const isDeploymentView = effectiveBaseView?.viewType === 'deployment';
+  const targetEnvironment = effectiveBaseView?.environment?.toLowerCase() || '';
 
   if (isDeploymentView) {
     const registerDeploymentNodeElements = (node: DeploymentNode, parentNodeId: string | null) => {
@@ -560,7 +673,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           technology: infra.technology,
           tags: infra.tags,
           parentId: node.id,
-          group: infra.group || null
+          group: infra.group || null,
+          perspectives: infra.perspectives || []
         };
       }
 
@@ -577,7 +691,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           tags: inst.tags,
           parentId: node.id,
           group: null,
-          underlyingElementId: targetCont ? targetCont.id : inst.containerId
+          underlyingElementId: targetCont ? targetCont.id : inst.containerId,
+          perspectives: inst.perspectives || []
         };
       }
 
@@ -594,7 +709,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           tags: inst.tags,
           parentId: node.id,
           group: null,
-          underlyingElementId: targetSys ? targetSys.id : inst.softwareSystemId
+          underlyingElementId: targetSys ? targetSys.id : inst.softwareSystemId,
+          perspectives: inst.perspectives || []
         };
       }
 
@@ -636,12 +752,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
   // Determine natural scope IDs based on view type
   const naturalScopeIds = new Set<string>();
-  if (!view || view.viewType === 'systemlandscape') {
+  if (!effectiveBaseView || effectiveBaseView.viewType === 'systemlandscape') {
     for (const p of ws.model.people) naturalScopeIds.add(p.id);
     for (const s of ws.model.softwareSystems) naturalScopeIds.add(s.id);
-  } else if (view.viewType === 'systemcontext') {
-    const targetSys = findElement(view.softwareSystemId);
-    const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
+    for (const e of ws.model.customElements || []) naturalScopeIds.add(e.id);
+  } else if (effectiveBaseView.viewType === 'systemcontext') {
+    const targetSys = findElement(effectiveBaseView.softwareSystemId);
+    const targetSysId = targetSys ? targetSys.id : effectiveBaseView.softwareSystemId;
     if (targetSysId && allElements[targetSysId]) {
       naturalScopeIds.add(targetSysId);
       for (const rel of ws.model.relationships) {
@@ -663,9 +780,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       for (const p of ws.model.people) naturalScopeIds.add(p.id);
       for (const s of ws.model.softwareSystems) naturalScopeIds.add(s.id);
     }
-  } else if (view.viewType === 'container') {
-    const targetSys = findElement(view.softwareSystemId);
-    const targetSysId = targetSys ? targetSys.id : view.softwareSystemId;
+  } else if (effectiveBaseView.viewType === 'container') {
+    const targetSys = findElement(effectiveBaseView.softwareSystemId);
+    const targetSysId = targetSys ? targetSys.id : effectiveBaseView.softwareSystemId;
     if (targetSys) {
       for (const [cid, elem] of Object.entries(allElements)) {
         if (elem.type === 'container' && elem.parentId === targetSysId) {
@@ -688,8 +805,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         }
       }
     }
-  } else if (view.viewType === 'component') {
-    const targetCont = findElement(view.containerId);
+  } else if (effectiveBaseView.viewType === 'component') {
+    const targetCont = findElement(effectiveBaseView.containerId);
     if (targetCont) {
       const actualContId = targetCont.id;
       const parentSysId = targetCont.parentId;
@@ -718,14 +835,14 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         }
       }
     }
-  } else if (view.viewType === 'deployment') {
+  } else if (effectiveBaseView.viewType === 'deployment') {
     for (const [eid, elem] of Object.entries(allElements)) {
       if (['infrastructureNode', 'containerInstance', 'softwareSystemInstance'].includes(elem.type)) {
         naturalScopeIds.add(eid);
       }
     }
-  } else if (view.viewType === 'dynamic') {
-    for (const step of view.dynamicSteps || []) {
+  } else if (effectiveBaseView.viewType === 'dynamic') {
+    for (const step of effectiveBaseView.dynamicSteps || []) {
       if (allElements[step.sourceId]) naturalScopeIds.add(step.sourceId);
       if (allElements[step.destinationId]) naturalScopeIds.add(step.destinationId);
     }
@@ -733,11 +850,11 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
   // Determine visible elements: include / exclude expressions
   let visibleElementIds = new Set<string>();
-  if (!view || view.includeAll || view.includedElementIds.length === 0) {
+  if (!effectiveBaseView || effectiveBaseView.includeAll || effectiveBaseView.includedElementIds.length === 0) {
     visibleElementIds = new Set<string>(naturalScopeIds);
   } else {
     visibleElementIds = evaluateInclusionExpressions(
-      view.includedElementIds,
+      effectiveBaseView.includedElementIds,
       allElements,
       ws.model.relationships,
       naturalScopeIds
@@ -745,16 +862,34 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   }
 
   // If dynamic view, always ensure participating dynamic steps are visible
-  if (view?.viewType === 'dynamic') {
-    for (const step of view.dynamicSteps || []) {
+  if (effectiveBaseView?.viewType === 'dynamic') {
+    for (const step of effectiveBaseView.dynamicSteps || []) {
       if (allElements[step.sourceId]) visibleElementIds.add(step.sourceId);
       if (allElements[step.destinationId]) visibleElementIds.add(step.destinationId);
     }
   }
 
   // Apply exclusion expressions
-  if (view && view.excludedElementIds.length > 0) {
-    applyExclusionExpressions(view.excludedElementIds, visibleElementIds, allElements, ws.model.relationships);
+  if (effectiveBaseView && effectiveBaseView.excludedElementIds.length > 0) {
+    applyExclusionExpressions(effectiveBaseView.excludedElementIds, visibleElementIds, allElements, ws.model.relationships);
+  }
+
+  // If this is a filtered view, apply the tag filter to visible elements
+  if (isFilteredView && view) {
+    const filterTags = (view.filterTags || []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+    const mode = (view.filterMode || 'include').toLowerCase();
+
+    for (const id of Array.from(visibleElementIds)) {
+      const elem = allElements[id];
+      const elemTags = (elem?.tags || []).map((t: string) => t.toLowerCase());
+      const hasMatchingTag = filterTags.some((ft) => elemTags.includes(ft));
+
+      if (mode === 'include' && !hasMatchingTag) {
+        visibleElementIds.delete(id);
+      } else if (mode === 'exclude' && hasMatchingTag) {
+        visibleElementIds.delete(id);
+      }
+    }
   }
 
   // Determine parent boundaries
@@ -784,8 +919,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   const bStroke = boundaryStyle?.stroke || null;
   const bStrokeWidth = boundaryStyle?.strokeWidth || null;
 
-  if (view) {
-    if (view.viewType === 'deployment') {
+  if (effectiveBaseView) {
+    if (effectiveBaseView.viewType === 'deployment') {
       const buildDeploymentBoundaries = (node: DeploymentNode, parentBoundaryId: string | null) => {
         const childNodeIds: string[] = [];
 
@@ -838,8 +973,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           buildDeploymentBoundaries(dNode, null);
         }
       }
-    } else if (view.viewType === 'container' && view.softwareSystemId) {
-      const targetSys = findElement(view.softwareSystemId);
+    } else if (effectiveBaseView.viewType === 'container' && effectiveBaseView.softwareSystemId) {
+      const targetSys = findElement(effectiveBaseView.softwareSystemId);
       if (targetSys) {
         const childIds = Object.values(allElements)
           .filter((e: any) => e.type === 'container' && e.parentId === targetSys.id)
@@ -859,8 +994,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           });
         }
       }
-    } else if (view.viewType === 'component' && view.containerId) {
-      const targetCont = findElement(view.containerId);
+    } else if (effectiveBaseView.viewType === 'component' && effectiveBaseView.containerId) {
+      const targetCont = findElement(effectiveBaseView.containerId);
       if (targetCont) {
         const actualContId = targetCont.id;
         const parentSysId = targetCont.parentId;
@@ -993,6 +1128,11 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     let stroke = '#ffffff';
     let strokeWidth = 1;
     let fontSize = 14;
+    let border: 'solid' | 'dashed' | 'dotted' = 'solid';
+    let opacity: number | undefined = undefined;
+    let width: number | undefined = undefined;
+    let height: number | undefined = undefined;
+    let icon: string | undefined = undefined;
 
     // Sort tags so generic "Element" is applied first, allowing specific tags (Person, Database, etc.) to override
     const sortedTags = [...(elem.tags || [])].sort((a, b) => {
@@ -1012,10 +1152,32 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         if (s.stroke) stroke = s.stroke;
         if (s.strokeWidth !== undefined && s.strokeWidth !== null) strokeWidth = s.strokeWidth;
         if (s.fontSize) fontSize = s.fontSize;
+        if (s.border) border = s.border;
+        if (s.opacity !== undefined && s.opacity !== null) opacity = s.opacity;
+        if (s.width !== undefined && s.width !== null) width = s.width;
+        if (s.height !== undefined && s.height !== null) height = s.height;
+        if (s.icon) icon = s.icon;
       }
     }
 
-    const savedPos = view?.layoutCoordinates[eid];
+    let badgeLabelOverride: string | undefined = undefined;
+    if (ws.terminology) {
+      if (elem.type === 'person' && ws.terminology.person) {
+        badgeLabelOverride = ws.terminology.person;
+      } else if (elem.type === 'softwareSystem' && ws.terminology.softwareSystem) {
+        badgeLabelOverride = ws.terminology.softwareSystem;
+      } else if (elem.type === 'container' && ws.terminology.container) {
+        badgeLabelOverride = ws.terminology.container;
+      } else if (elem.type === 'component' && ws.terminology.component) {
+        badgeLabelOverride = ws.terminology.component;
+      } else if (elem.type === 'deploymentNode' && ws.terminology.deploymentNode) {
+        badgeLabelOverride = ws.terminology.deploymentNode;
+      } else if (elem.type === 'infrastructureNode' && ws.terminology.infrastructureNode) {
+        badgeLabelOverride = ws.terminology.infrastructureNode;
+      }
+    }
+
+    const savedPos = view?.layoutCoordinates?.[eid] || effectiveBaseView?.layoutCoordinates?.[eid];
     const col = idx % cols;
     const row = Math.floor(idx / cols);
     const position = savedPos ? { x: savedPos.x, y: savedPos.y } : { x: 50 + col * spacingX, y: 50 + row * spacingY };
@@ -1038,6 +1200,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         stroke,
         strokeWidth,
         fontSize,
+        border,
+        opacity,
+        width,
+        height,
+        icon,
+        badgeLabelOverride,
+        perspectives: elem.perspectives || [],
         tags: elem.tags,
         group: elem.group || null,
         underlyingElementId: elem.underlyingElementId || null
@@ -1049,10 +1218,10 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   // Generate Edges
   const edges: any[] = [];
 
-  if (view?.viewType === 'dynamic') {
+  if (effectiveBaseView?.viewType === 'dynamic') {
     // Dynamic sequence edges
     let sIdx = 1;
-    for (const step of view.dynamicSteps || []) {
+    for (const step of effectiveBaseView.dynamicSteps || []) {
       const sElem = allElements[step.sourceId];
       const dElem = allElements[step.destinationId];
       if (!sElem || !dElem) continue;
@@ -1082,12 +1251,13 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           stepOrder: stepNum,
           description: step.description,
           technology: step.technology || '',
-          interactionStyle: 'Dynamic'
+          interactionStyle: 'Dynamic',
+          perspectives: []
         }
       });
       sIdx++;
     }
-  } else if (view?.viewType === 'deployment') {
+  } else if (effectiveBaseView?.viewType === 'deployment') {
     // Deployment view edges
     // 1. Direct relationships on infrastructure nodes or instances
     // 2. Implied relationships between deployed container instances
@@ -1102,6 +1272,46 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     const edgeSeen = new Set<string>();
 
     for (const rel of ws.model.relationships) {
+      if (isFilteredView && view) {
+        const filterTags = (view.filterTags || []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+        const mode = (view.filterMode || 'include').toLowerCase();
+        const relTags = (rel.tags || []).map((t: string) => t.toLowerCase());
+        const hasMatchingTag = filterTags.some((ft) => relTags.includes(ft));
+
+        if (mode === 'include') {
+          const anyModelRelMatches = ws.model.relationships.some((r) =>
+            (r.tags || []).some((rt) => filterTags.includes(rt.toLowerCase()))
+          );
+          if (filterTags.includes('relationship') || anyModelRelMatches) {
+            if (!hasMatchingTag) continue;
+          }
+        } else if (mode === 'exclude') {
+          if (hasMatchingTag) continue;
+        }
+      }
+
+      let edgeColor = '#64748b';
+      let edgeThickness = 2;
+      let isDashed = false;
+      let edgeOpacity: number | undefined = undefined;
+
+      for (const tag of rel.tags || []) {
+        const rs = relStyleMap.get(tag.toLowerCase());
+        if (rs) {
+          if (rs.color) edgeColor = rs.color;
+          if (rs.thickness) edgeThickness = rs.thickness;
+          if (rs.dashed !== undefined) isDashed = rs.dashed;
+          if (rs.opacity !== undefined) edgeOpacity = rs.opacity;
+        }
+      }
+
+      const relStyle = {
+        stroke: edgeColor,
+        strokeWidth: edgeThickness,
+        strokeDasharray: isDashed ? '5,5' : undefined,
+        opacity: edgeOpacity !== undefined ? edgeOpacity / 100 : undefined
+      };
+
       // Check direct
       if (visibleElementIds.has(rel.sourceId) && visibleElementIds.has(rel.destinationId)) {
         const edgeKey = `${rel.sourceId}->${rel.destinationId}`;
@@ -1113,6 +1323,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             target: rel.destinationId,
             label: rel.description,
             type: 'smoothstep',
+            style: relStyle,
             data: {
               id: rel.id,
               relationshipId: rel.id,
@@ -1122,7 +1333,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
               destinationIdentifier: rel.destinationIdentifier,
               description: rel.description,
               technology: rel.technology,
-              interactionStyle: rel.interactionStyle
+              interactionStyle: rel.interactionStyle,
+              perspectives: rel.perspectives || []
             }
           });
         }
@@ -1142,6 +1354,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
               target: dInst,
               label: rel.description,
               type: 'smoothstep',
+              style: relStyle,
               data: {
                 id: rel.id,
                 relationshipId: rel.id,
@@ -1151,7 +1364,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
                 destinationIdentifier: rel.destinationIdentifier,
                 description: rel.description,
                 technology: rel.technology,
-                interactionStyle: rel.interactionStyle
+                interactionStyle: rel.interactionStyle,
+                perspectives: rel.perspectives || []
               }
             });
           }
@@ -1188,6 +1402,24 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     });
 
     for (const rel of sortedRels) {
+      if (isFilteredView && view) {
+        const filterTags = (view.filterTags || []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+        const mode = (view.filterMode || 'include').toLowerCase();
+        const relTags = (rel.tags || []).map((t: string) => t.toLowerCase());
+        const hasMatchingTag = filterTags.some((ft) => relTags.includes(ft));
+
+        if (mode === 'include') {
+          const anyModelRelMatches = ws.model.relationships.some((r) =>
+            (r.tags || []).some((rt) => filterTags.includes(rt.toLowerCase()))
+          );
+          if (filterTags.includes('relationship') || anyModelRelMatches) {
+            if (!hasMatchingTag) continue;
+          }
+        } else if (mode === 'exclude') {
+          if (hasMatchingTag) continue;
+        }
+      }
+
       const src = findVisibleRepresentative(rel.sourceId);
       const dst = findVisibleRepresentative(rel.destinationId);
 
@@ -1198,6 +1430,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         let edgeColor = '#64748b';
         let edgeThickness = 2;
         let isDashed = false;
+        let edgeOpacity: number | undefined = undefined;
 
         for (const tag of rel.tags || []) {
           const rs = relStyleMap.get(tag.toLowerCase());
@@ -1205,6 +1438,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             if (rs.color) edgeColor = rs.color;
             if (rs.thickness) edgeThickness = rs.thickness;
             if (rs.dashed !== undefined) isDashed = rs.dashed;
+            if (rs.opacity !== undefined) edgeOpacity = rs.opacity;
           }
         }
 
@@ -1222,7 +1456,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
           style: {
             stroke: edgeColor,
             strokeWidth: edgeThickness,
-            strokeDasharray: isDashed ? '5,5' : undefined
+            strokeDasharray: isDashed ? '5,5' : undefined,
+            opacity: edgeOpacity !== undefined ? edgeOpacity / 100 : undefined
           },
           data: {
             id: rel.id,
@@ -1235,7 +1470,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
             technology: rel.technology,
             interactionStyle: rel.interactionStyle,
             implied: isImplied,
-            linkedRelationshipId: linkedId
+            linkedRelationshipId: linkedId,
+            perspectives: rel.perspectives || []
           }
         });
       }
@@ -1245,15 +1481,16 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   return {
     viewKey: view ? view.key : 'Default',
     viewType: view ? view.viewType : 'systemContext',
-    title: view ? view.title : ws.name,
-    description: view ? view.description : ws.description,
-    autoLayout: view?.autoLayout || 'tb',
+    title: view?.title || (isFilteredView && effectiveBaseView ? `${effectiveBaseView.title || effectiveBaseView.key} - Filtered` : view?.key || ws.name),
+    description: view?.description || effectiveBaseView?.description || ws.description,
+    autoLayout: view?.autoLayout || effectiveBaseView?.autoLayout || 'tb',
     defaultView: ws.defaultView || ws.views.find((v) => v.isDefault)?.key || ws.views[0]?.key || 'Default',
     boundary,
     boundaries,
     nodes,
     edges,
-    hasLayout: Boolean(view && Object.keys(view.layoutCoordinates || {}).length > 0),
+    hasLayout: Boolean((view && Object.keys(view.layoutCoordinates || {}).length > 0) || (effectiveBaseView && Object.keys(effectiveBaseView.layoutCoordinates || {}).length > 0)),
+    terminology: ws.terminology,
     availableViews: ws.views.map((v) => ({
       key: v.key,
       type: v.viewType,
@@ -1262,6 +1499,9 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       softwareSystemId: v.softwareSystemId,
       containerId: v.containerId,
       environment: v.environment,
+      baseViewKey: v.baseViewKey,
+      filterMode: v.filterMode,
+      filterTags: v.filterTags,
       isDefault: v.isDefault || v.key === ws.defaultView
     }))
   };

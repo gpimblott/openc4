@@ -91,6 +91,12 @@ export function inspectWorkspace(ws: Workspace): InspectionFinding[] {
     }
   }
 
+  if (ws.model.customElements) {
+    for (const e of ws.model.customElements) {
+      registerElement(e.id, e.identifier, e.name, 'Element', []);
+    }
+  }
+
   // Rule: Duplicate Element Identifiers in Model
   const seenTopLevelIdentifiers = new Map<string, { id: string; name: string; type: string }>();
   const checkTopLevel = (elem: { id: string; identifier?: string; name: string }, type: string) => {
@@ -112,6 +118,12 @@ export function inspectWorkspace(ws: Workspace): InspectionFinding[] {
 
   for (const p of ws.model.people) {
     checkTopLevel(p, 'Person');
+  }
+
+  if (ws.model.customElements) {
+    for (const e of ws.model.customElements) {
+      checkTopLevel(e, 'Element');
+    }
   }
 
   for (const s of ws.model.softwareSystems) {
@@ -359,6 +371,32 @@ export function inspectWorkspace(ws: Workspace): InspectionFinding[] {
             elementName: comp.name
           });
         }
+      }
+    }
+  }
+
+  // Inspect Custom Elements
+  if (ws.model.customElements) {
+    for (const e of ws.model.customElements) {
+      if (!e.description || !e.description.trim()) {
+        findings.push({
+          ruleId: 'ELEMENT_MISSING_DESCRIPTION',
+          severity: 'INFO',
+          message: `Element '${e.name}' is missing a description.`,
+          elementId: e.id,
+          elementType: 'Element',
+          elementName: e.name
+        });
+      }
+      if (!connectedElementIds.has(e.id)) {
+        findings.push({
+          ruleId: 'ORPHAN_ELEMENT',
+          severity: 'WARNING',
+          message: `Element '${e.name}' is disconnected with no relationships.`,
+          elementId: e.id,
+          elementType: 'Element',
+          elementName: e.name
+        });
       }
     }
   }

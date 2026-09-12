@@ -19,7 +19,14 @@ import {
   View,
   DynamicStep,
   ElementStyle,
-  RelationshipStyle
+  RelationshipStyle,
+  Perspective,
+  Terminology,
+  Archetypes,
+  ElementArchetype,
+  RelationshipArchetype,
+  ArchetypeBaseType,
+  CustomElement
 } from './ast.js';
 
 export class ParseError extends Error {
@@ -48,7 +55,7 @@ export class ParseError extends Error {
 }
 
 export interface Token {
-  type: 'IDENTIFIER' | 'STRING' | 'ARROW' | 'REMOVE_ARROW' | 'LBRACE' | 'RBRACE' | 'EQUALS' | 'EOF';
+  type: 'IDENTIFIER' | 'STRING' | 'ARROW' | 'ARCHETYPE_ARROW' | 'REMOVE_ARROW' | 'LBRACE' | 'RBRACE' | 'EQUALS' | 'EOF';
   value: string;
   line: number;
   column: number;
@@ -87,6 +94,23 @@ export class Lexer {
       return ch;
     }
     return null;
+  }
+
+  private isArchetypeArrowAhead(): boolean {
+    if (this.peek() !== '-' || this.peek(1) !== '-') return false;
+    let offset = 2;
+    while (this.pos + offset < this.length) {
+      const c = this.peek(offset);
+      if (c === '-' && this.peek(offset + 1) === '>') {
+        return offset > 2; // must have at least one character in archetype name
+      }
+      if (c && /[a-zA-Z0-9_\-]/.test(c)) {
+        offset++;
+      } else {
+        return false;
+      }
+    }
+    return false;
   }
 
   tokenize(): Token[] {
@@ -156,6 +180,23 @@ export class Lexer {
         this.advance();
         continue;
       }
+      if (this.isArchetypeArrowAhead()) {
+        const startLine = this.line;
+        const startCol = this.col;
+        const chars: string[] = [];
+        chars.push(this.advance()!); // -
+        chars.push(this.advance()!); // -
+        while (this.pos < this.length) {
+          if (this.peek() === '-' && this.peek(1) === '>') {
+            chars.push(this.advance()!); // -
+            chars.push(this.advance()!); // >
+            break;
+          }
+          chars.push(this.advance()!);
+        }
+        tokens.push({ type: 'ARCHETYPE_ARROW', value: chars.join(''), line: startLine, column: startCol });
+        continue;
+      }
       if (ch === '-' && this.peek(1) === '>') {
         tokens.push({ type: 'ARROW', value: '->', line: this.line, column: this.col });
         this.advance();
@@ -203,8 +244,13 @@ export class Lexer {
         while (this.pos < this.length) {
           const c = this.peek();
           if (c && this.isIdentifierChar(c)) {
-            // Do not consume '-' if it forms an arrow operator '->' or '-/>'
-            if (c === '-' && (this.peek(1) === '>' || (this.peek(1) === '/' && this.peek(2) === '>'))) {
+            // Do not consume '-' if it forms an arrow operator '->', '-/>', or '--name->'
+            if (
+              c === '-' &&
+              (this.peek(1) === '>' ||
+                (this.peek(1) === '/' && this.peek(2) === '>') ||
+                this.isArchetypeArrowAhead())
+            ) {
               break;
             }
             word.push(c);
@@ -260,6 +306,7 @@ export class Parser {
   idToElement: Map<string, any> = new Map();
   identifiersMode: 'flat' | 'hierarchical' = 'flat';
   private currentGroup: string | null = null;
+  archetypes: Archetypes = { elements: {}, relationships: {} };
 
   constructor(tokens: Token[], sourceText: string = '') {
     this.tokens = tokens;
@@ -269,11 +316,14 @@ export class Parser {
       name: 'Architecture Workspace',
       description: '',
       version: '1.0.0',
+      archetypes: this.archetypes,
       model: {
         people: [],
         softwareSystems: [],
         deploymentNodes: [],
-        relationships: []
+        relationships: [],
+        customElements: [],
+        archetypes: this.archetypes
       },
       views: [],
       elementStyles: [],
@@ -363,13 +413,14 @@ export class Parser {
     const startLine = targetLine ?? (prevTok ? prevTok.line : this.current().line);
     while (
       (this.current().type === 'STRING' || this.current().type === 'IDENTIFIER') &&
+      this.current().type !== 'ARCHETYPE_ARROW' &&
       !['{', '}', '=', '->', '-/>'].includes(this.current().value)
     ) {
       const curr = this.current();
       if (sameLineOnly && curr.line !== startLine) {
         break;
       }
-      if (curr.type === 'IDENTIFIER' && ['ARROW', 'REMOVE_ARROW', 'EQUALS'].includes(this.peekNext().type)) {
+      if (curr.type === 'IDENTIFIER' && ['ARROW', 'ARCHETYPE_ARROW', 'REMOVE_ARROW', 'EQUALS'].includes(this.peekNext().type)) {
         break;
       }
       args.push(curr.value);
@@ -390,6 +441,66 @@ export class Parser {
           } else {
             target[key] = '';
           }
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+  }
+
+  private parsePerspectivesBody(target: Perspective[]) {
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        if (curr.type === 'IDENTIFIER' && curr.value.toLowerCase() === 'perspective') {
+          this.pos += 1;
+          const name = this.expectStringOrIdentifier();
+          const p: Perspective = { name, description: '' };
+          if (this.match('LBRACE')) {
+            while (!this.match('RBRACE') && !this.match('EOF')) {
+              const field = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
+              this.pos += 1;
+              const val = this.expectStringOrIdentifier();
+              if (field === 'description') p.description = val;
+              else if (field === 'value') p.value = val;
+              else if (field === 'url') p.url = val;
+            }
+          }
+          target.push(p);
+        } else if (curr.type === 'STRING' || curr.type === 'IDENTIFIER') {
+          const name = this.expectStringOrIdentifier();
+          const desc = this.expectStringOrIdentifier();
+          let value: string | undefined;
+          if (
+            (this.current().type === 'STRING' || this.current().type === 'IDENTIFIER') &&
+            this.current().line === curr.line
+          ) {
+            value = this.expectStringOrIdentifier();
+          }
+          target.push({ name, description: desc, value });
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+  }
+
+  private parseTerminologyBody(target: Terminology) {
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        if (curr.type === 'IDENTIFIER') {
+          const key = curr.value.toLowerCase();
+          this.pos += 1;
+          const term = this.expectStringOrIdentifier();
+          if (key === 'person') target.person = term;
+          else if (key === 'softwaresystem' || key === 'software_system') target.softwareSystem = term;
+          else if (key === 'container') target.container = term;
+          else if (key === 'component') target.component = term;
+          else if (key === 'deploymentnode' || key === 'deployment_node') target.deploymentNode = term;
+          else if (key === 'infrastructurenode' || key === 'infrastructure_node') target.infrastructureNode = term;
+          else if (key === 'relationship') target.relationship = term;
+          else if (key === 'metadata') target.metadata = term;
         } else {
           this.pos += 1;
         }
@@ -460,6 +571,11 @@ export class Parser {
         this.workspace.impliedRelationships = mode;
         this.workspace.model.impliedRelationships = mode;
         return;
+      } else if (val === 'terminology') {
+        this.pos += 1;
+        if (!this.workspace.terminology) this.workspace.terminology = {};
+        this.parseTerminologyBody(this.workspace.terminology);
+        return;
       } else if (val === 'configuration') {
         this.pos += 1;
         if (this.match('LBRACE')) {
@@ -473,11 +589,19 @@ export class Parser {
               const mode = low === 'false' ? false : low === 'true' ? true : arg;
               this.workspace.impliedRelationships = mode;
               this.workspace.model.impliedRelationships = mode;
+            } else if (cKw === 'terminology') {
+              this.pos += 1;
+              if (!this.workspace.terminology) this.workspace.terminology = {};
+              this.parseTerminologyBody(this.workspace.terminology);
             } else {
               this.pos += 1;
             }
           }
         }
+        return;
+      } else if (val === 'archetypes') {
+        this.pos += 1;
+        this.parseArchetypesBody();
         return;
       } else if (val.startsWith('!')) {
         this.pos += 1;
@@ -488,6 +612,305 @@ export class Parser {
       }
     }
     this.pos += 1;
+  }
+
+  getElementArchetype(name: string): ElementArchetype | undefined {
+    if (!name) return undefined;
+    if (this.archetypes.elements[name]) return this.archetypes.elements[name];
+    const lower = name.toLowerCase();
+    for (const [k, v] of Object.entries(this.archetypes.elements)) {
+      if (k.toLowerCase() === lower) return v;
+    }
+    return undefined;
+  }
+
+  getRelationshipArchetype(name: string): RelationshipArchetype | undefined {
+    if (!name) return undefined;
+    if (this.archetypes.relationships[name]) return this.archetypes.relationships[name];
+    const lower = name.toLowerCase();
+    for (const [k, v] of Object.entries(this.archetypes.relationships)) {
+      if (k.toLowerCase() === lower) return v;
+    }
+    return undefined;
+  }
+
+  private parseArchetypesBody() {
+    this.expect('LBRACE');
+    while (!this.match('RBRACE') && !this.match('EOF')) {
+      const curr = this.current();
+      if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'EQUALS') {
+        const name = curr.value;
+        this.pos += 2; // consume name and '='
+        this.parseArchetypeDefinition(name);
+      } else {
+        this.pos += 1;
+      }
+    }
+  }
+
+  private parseArchetypeDefinition(name: string) {
+    const curr = this.current();
+
+    // Case 1: Relationship archetype sync = -> [ { ... } ]
+    if (curr.type === 'ARROW') {
+      this.pos += 1; // consume '->'
+      const relArchetype: RelationshipArchetype = {
+        name,
+        baseType: '->',
+        tags: [],
+        properties: {},
+        perspectives: []
+      };
+
+      if (this.match('LBRACE')) {
+        while (!this.match('RBRACE') && !this.match('EOF')) {
+          this.parseRelationshipArchetypeProperty(relArchetype);
+        }
+      }
+
+      this.archetypes.relationships[name] = relArchetype;
+      return;
+    }
+
+    // Case 2: Extended relationship archetype https = --sync-> [ { ... } ]
+    if (curr.type === 'ARCHETYPE_ARROW') {
+      const baseName = curr.value.slice(2, -2);
+      this.pos += 1; // consume '--sync->'
+      const parentRelArchetype = this.getRelationshipArchetype(baseName);
+      if (!parentRelArchetype) {
+        throw new ParseError(`Unknown relationship archetype base '${baseName}'`, curr.line, curr.column);
+      }
+
+      const relArchetype: RelationshipArchetype = {
+        name,
+        baseType: baseName,
+        description: parentRelArchetype.description,
+        technology: parentRelArchetype.technology,
+        tags: [...(parentRelArchetype.tags || [])],
+        properties: { ...(parentRelArchetype.properties || {}) },
+        perspectives: parentRelArchetype.perspectives ? JSON.parse(JSON.stringify(parentRelArchetype.perspectives)) : []
+      };
+
+      if (this.match('LBRACE')) {
+        while (!this.match('RBRACE') && !this.match('EOF')) {
+          this.parseRelationshipArchetypeProperty(relArchetype);
+        }
+      }
+
+      this.archetypes.relationships[name] = relArchetype;
+      return;
+    }
+
+    // Case 3: Element archetype application = container [ { ... } ] or springBootApplication = application [ { ... } ]
+    if (curr.type === 'IDENTIFIER') {
+      const baseName = curr.value;
+      this.pos += 1; // consume baseName
+
+      let resolvedBaseType: ArchetypeBaseType;
+      let inheritedDesc: string | undefined;
+      let inheritedTech: string | undefined;
+      let inheritedTags: string[] = [];
+      let inheritedProps: Record<string, string> = {};
+      let inheritedPersp: Perspective[] = [];
+      let inheritedMeta: string | undefined;
+
+      const normalizedBase = baseName.toLowerCase();
+      const parentElemArchetype = this.getElementArchetype(baseName);
+
+      if (parentElemArchetype) {
+        resolvedBaseType = parentElemArchetype.resolvedBaseType;
+        inheritedDesc = parentElemArchetype.description;
+        inheritedTech = parentElemArchetype.technology;
+        inheritedTags = [...(parentElemArchetype.tags || [])];
+        inheritedProps = { ...(parentElemArchetype.properties || {}) };
+        inheritedPersp = parentElemArchetype.perspectives ? JSON.parse(JSON.stringify(parentElemArchetype.perspectives)) : [];
+        inheritedMeta = parentElemArchetype.metadata;
+      } else if (
+        [
+          'person',
+          'softwaresystem',
+          'system',
+          'container',
+          'component',
+          'deploymentnode',
+          'infrastructurenode',
+          'group',
+          'element'
+        ].includes(normalizedBase)
+      ) {
+        if (normalizedBase === 'system' || normalizedBase === 'softwaresystem') {
+          resolvedBaseType = 'softwareSystem';
+        } else if (normalizedBase === 'deploymentnode') {
+          resolvedBaseType = 'deploymentNode';
+        } else if (normalizedBase === 'infrastructurenode') {
+          resolvedBaseType = 'infrastructureNode';
+        } else {
+          resolvedBaseType = normalizedBase as ArchetypeBaseType;
+        }
+      } else {
+        throw new ParseError(`Unknown archetype base type '${baseName}'`, curr.line, curr.column);
+      }
+
+      const elemArchetype: ElementArchetype = {
+        name,
+        baseType: baseName,
+        resolvedBaseType,
+        description: inheritedDesc,
+        technology: inheritedTech,
+        tags: inheritedTags,
+        properties: inheritedProps,
+        perspectives: inheritedPersp,
+        metadata: inheritedMeta
+      };
+
+      if (this.match('LBRACE')) {
+        while (!this.match('RBRACE') && !this.match('EOF')) {
+          this.parseElementArchetypeProperty(elemArchetype);
+        }
+      }
+
+      this.archetypes.elements[name] = elemArchetype;
+      return;
+    }
+
+    throw new ParseError(`Unexpected token '${curr.value}' in archetype definition`, curr.line, curr.column);
+  }
+
+  private parseRelationshipArchetypeProperty(rel: RelationshipArchetype) {
+    const tok = this.current();
+    const kw = tok.type === 'IDENTIFIER' ? tok.value.toLowerCase() : '';
+
+    if (kw === 'description') {
+      this.pos += 1;
+      rel.description = this.expectStringOrIdentifier();
+    } else if (kw === 'technology') {
+      this.pos += 1;
+      rel.technology = this.expectStringOrIdentifier();
+    } else if (kw === 'tag') {
+      this.pos += 1;
+      const t = this.expectStringOrIdentifier();
+      if (!rel.tags) rel.tags = [];
+      if (!rel.tags.includes(t)) rel.tags.push(t);
+    } else if (kw === 'tags') {
+      this.pos += 1;
+      const tList = this.parseStringArgs();
+      if (!rel.tags) rel.tags = [];
+      this.addTags(rel.tags, tList);
+    } else if (kw === 'properties') {
+      this.pos += 1;
+      if (!rel.properties) rel.properties = {};
+      this.parsePropertiesBody(rel.properties);
+    } else if (kw === 'perspectives') {
+      this.pos += 1;
+      if (!rel.perspectives) rel.perspectives = [];
+      this.parsePerspectivesBody(rel.perspectives);
+    } else {
+      this.pos += 1;
+    }
+  }
+
+  private parseElementArchetypeProperty(elem: ElementArchetype) {
+    const tok = this.current();
+    const kw = tok.type === 'IDENTIFIER' ? tok.value.toLowerCase() : '';
+
+    if (kw === 'description') {
+      this.pos += 1;
+      elem.description = this.expectStringOrIdentifier();
+    } else if (kw === 'technology') {
+      this.pos += 1;
+      elem.technology = this.expectStringOrIdentifier();
+    } else if (kw === 'metadata') {
+      this.pos += 1;
+      elem.metadata = this.expectStringOrIdentifier();
+    } else if (kw === 'tag') {
+      this.pos += 1;
+      const t = this.expectStringOrIdentifier();
+      if (!elem.tags) elem.tags = [];
+      if (!elem.tags.includes(t)) elem.tags.push(t);
+    } else if (kw === 'tags') {
+      this.pos += 1;
+      const tList = this.parseStringArgs();
+      if (!elem.tags) elem.tags = [];
+      this.addTags(elem.tags, tList);
+    } else if (kw === 'properties') {
+      this.pos += 1;
+      if (!elem.properties) elem.properties = {};
+      this.parsePropertiesBody(elem.properties);
+    } else if (kw === 'perspectives') {
+      this.pos += 1;
+      if (!elem.perspectives) elem.perspectives = [];
+      this.parsePerspectivesBody(elem.perspectives);
+    } else {
+      this.pos += 1;
+    }
+  }
+
+  private parseCustomElement(identifier: string | null = null, startLine?: number, archetype?: ElementArchetype) {
+    const sLine = startLine ?? this.current().line;
+    const args = this.parseStringArgs();
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Element');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const explicitTags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
+    if (!tags.includes('Element')) tags.push('Element');
+
+    const eid = this.getId();
+    const ident = identifier || name.toLowerCase().replace(/ /g, '_');
+    const customElem: CustomElement = {
+      id: eid,
+      identifier: ident,
+      name,
+      description: desc,
+      tags,
+      metadata: archetype?.metadata,
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
+    };
+
+    this.identifierToId.set(ident, eid);
+    this.identifierToId.set(name, eid);
+    this.idToElement.set(eid, customElem);
+    if (!this.workspace.model.customElements) this.workspace.model.customElements = [];
+    this.workspace.model.customElements.push(customElem);
+
+    if (this.match('LBRACE')) {
+      while (!this.match('RBRACE') && !this.match('EOF')) {
+        const curr = this.current();
+        const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
+        if (kw === 'description') {
+          this.pos += 1;
+          customElem.description = this.expectStringOrIdentifier();
+        } else if (kw === 'metadata') {
+          this.pos += 1;
+          customElem.metadata = this.expectStringOrIdentifier();
+        } else if (kw === 'tag') {
+          this.pos += 1;
+          const t = this.expectStringOrIdentifier();
+          this.addTags(customElem.tags, [t]);
+        } else if (kw === 'tags') {
+          this.pos += 1;
+          this.addTags(customElem.tags, this.parseStringArgs());
+        } else if (kw === 'properties') {
+          this.pos += 1;
+          this.parsePropertiesBody(customElem.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!customElem.perspectives) customElem.perspectives = [];
+          this.parsePerspectivesBody(customElem.perspectives);
+        } else {
+          this.pos += 1;
+        }
+      }
+    }
+    const endLine = this.tokens[Math.max(0, this.pos - 1)]?.line ?? sLine;
+    customElem.lineRange = { startLine: sLine, endLine };
   }
 
   private parseModelBody() {
@@ -540,6 +963,12 @@ export class Parser {
       while (this.pos < this.tokens.length && this.current().line === nextCurr.line && this.current().type !== 'EOF') {
         this.pos += 1;
       }
+      return;
+    }
+
+    if (keyword === 'archetypes') {
+      this.pos += 1;
+      this.parseArchetypesBody();
       return;
     }
 
@@ -596,7 +1025,50 @@ export class Parser {
       this.pos += 1;
       this.parseDeploymentEnvironment();
       return;
-    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+    } else {
+      const elemArchetype = this.getElementArchetype(keyword);
+      if (elemArchetype) {
+        this.pos += 1;
+        if (elemArchetype.resolvedBaseType === 'person') {
+          this.parsePerson(identifier, startLine, elemArchetype);
+        } else if (elemArchetype.resolvedBaseType === 'softwareSystem') {
+          this.parseSoftwareSystem(identifier, startLine, elemArchetype);
+        } else if (elemArchetype.resolvedBaseType === 'container') {
+          if (this.workspace.model.softwareSystems.length === 0) {
+            const defaultSys: SoftwareSystem = {
+              id: this.getId(),
+              identifier: 'default_system',
+              name: 'System',
+              description: '',
+              location: 'Unspecified',
+              tags: ['Software System', 'Element'],
+              properties: {},
+              containers: []
+            };
+            this.workspace.model.softwareSystems.push(defaultSys);
+            this.idToElement.set(defaultSys.id, defaultSys);
+            this.identifierToId.set(defaultSys.identifier, defaultSys.id);
+            this.identifierToId.set(defaultSys.name, defaultSys.id);
+          }
+          const targetSys = this.workspace.model.softwareSystems[this.workspace.model.softwareSystems.length - 1];
+          this.parseContainer(targetSys, identifier, startLine, elemArchetype);
+        } else if (elemArchetype.resolvedBaseType === 'group') {
+          const groupName = this.expectStringOrIdentifier();
+          this.expect('LBRACE');
+          const prevGroup = this.currentGroup;
+          this.currentGroup = prevGroup ? `${prevGroup}/${groupName}` : groupName;
+          while (!this.match('RBRACE') && !this.match('EOF')) {
+            this.parseModelBody();
+          }
+          this.currentGroup = prevGroup;
+        } else if (elemArchetype.resolvedBaseType === 'element') {
+          this.parseCustomElement(identifier, startLine, elemArchetype);
+        }
+        return;
+      }
+    }
+
+    if (nextCurr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
       this.parseRelationship(nextCurr.value, nextCurr.line);
       return;
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
@@ -647,12 +1119,17 @@ export class Parser {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(targetIdent, dest, curr.line);
+        } else if (curr.type === 'ARCHETYPE_ARROW') {
+          const archName = curr.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(targetIdent, dest, curr.line, archName);
         } else if (curr.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(targetIdent, dest);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -667,6 +1144,12 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(target ? target.properties : {});
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (target) {
+            if (!target.perspectives) target.perspectives = [];
+            this.parsePerspectivesBody(target.perspectives);
+          }
         } else if (kw === 'description') {
           this.pos += 1;
           const d = this.expectStringOrIdentifier();
@@ -724,6 +1207,12 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(rel ? rel.properties : {});
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (rel) {
+            if (!rel.perspectives) rel.perspectives = [];
+            this.parsePerspectivesBody(rel.perspectives);
+          }
         } else if (kw === 'description') {
           this.pos += 1;
           const d = this.expectStringOrIdentifier();
@@ -763,12 +1252,18 @@ export class Parser {
     );
   }
 
-  private parsePerson(identifier: string | null = null, startLine?: number) {
+  private parsePerson(identifier: string | null = null, startLine?: number, archetype?: ElementArchetype) {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Person';
-    const desc = args.length > 1 ? args[1] : '';
-    const tags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Person');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const explicitTags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
     if (!tags.includes('Person')) tags.unshift('Person');
     if (!tags.includes('Element')) tags.push('Element');
 
@@ -781,8 +1276,10 @@ export class Parser {
       description: desc,
       location: 'Unspecified',
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -798,11 +1295,20 @@ export class Parser {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(ident, dest, tok.line);
+        } else if (tok.type === 'ARCHETYPE_ARROW') {
+          const archName = tok.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(ident, dest, tok.line, archName);
         } else if (tok.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(ident, dest);
+        } else if (tok.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
+          this.parseRelationship(tok.value, tok.line);
+        } else if (tok.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
+          this.parseRelationshipRemoval(tok.value, tok.line);
         } else if (kw === 'tag') {
           this.pos += 1;
           const t = this.expectStringOrIdentifier();
@@ -819,6 +1325,10 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(person.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!person.perspectives) person.perspectives = [];
+          this.parsePerspectivesBody(person.perspectives);
         } else {
           this.pos += 1;
         }
@@ -829,12 +1339,18 @@ export class Parser {
     person.lineRange = { startLine: sLine, endLine };
   }
 
-  private parseSoftwareSystem(identifier: string | null = null, startLine?: number) {
+  private parseSoftwareSystem(identifier: string | null = null, startLine?: number, archetype?: ElementArchetype) {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Software System';
-    const desc = args.length > 1 ? args[1] : '';
-    const tags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Software System');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const explicitTags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
     if (!tags.includes('Software System')) tags.unshift('Software System');
     if (!tags.includes('Element')) tags.push('Element');
 
@@ -848,8 +1364,10 @@ export class Parser {
       location: 'Unspecified',
       containers: [],
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -881,10 +1399,12 @@ export class Parser {
 
     const nextCurr = this.current();
     const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
-    if (kw === 'container') {
+    const elemArchetype = this.getElementArchetype(kw);
+
+    if (kw === 'container' || (elemArchetype && elemArchetype.resolvedBaseType === 'container')) {
       this.pos += 1;
-      this.parseContainer(system, cIdent, cStartLine);
-    } else if (kw === 'group') {
+      this.parseContainer(system, cIdent, cStartLine, elemArchetype);
+    } else if (kw === 'group' || (elemArchetype && elemArchetype.resolvedBaseType === 'group')) {
       this.pos += 1;
       const groupName = this.expectStringOrIdentifier();
       this.expect('LBRACE');
@@ -898,12 +1418,17 @@ export class Parser {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseRelationshipDetails(ident, dest, nextCurr.line);
+    } else if (nextCurr.type === 'ARCHETYPE_ARROW') {
+      const archName = nextCurr.value.slice(2, -2);
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseRelationshipDetails(ident, dest, nextCurr.line, archName);
     } else if (nextCurr.type === 'REMOVE_ARROW') {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseStringArgs();
       this.removeRelationship(ident, dest);
-    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+    } else if (nextCurr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
       this.parseRelationship(nextCurr.value, nextCurr.line);
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
       this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
@@ -923,18 +1448,28 @@ export class Parser {
     } else if (kw === 'properties') {
       this.pos += 1;
       this.parsePropertiesBody(system.properties);
+    } else if (kw === 'perspectives') {
+      this.pos += 1;
+      if (!system.perspectives) system.perspectives = [];
+      this.parsePerspectivesBody(system.perspectives);
     } else {
       this.pos += 1;
     }
   }
 
-  private parseContainer(system: SoftwareSystem, identifier: string | null = null, startLine?: number) {
+  private parseContainer(system: SoftwareSystem, identifier: string | null = null, startLine?: number, archetype?: ElementArchetype) {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Container';
-    const desc = args.length > 1 ? args[1] : '';
-    const tech = args.length > 2 ? args[2] : '';
-    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Container');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const tech = args.length > 2 ? args[2] : (archetype?.technology || '');
+    const explicitTags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
     if (!tags.includes('Container')) tags.unshift('Container');
     if (!tags.includes('Element')) tags.push('Element');
 
@@ -952,8 +1487,10 @@ export class Parser {
       technology: tech,
       components: [],
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -989,10 +1526,12 @@ export class Parser {
 
     const nextCurr = this.current();
     const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
-    if (kw === 'component') {
+    const elemArchetype = this.getElementArchetype(kw);
+
+    if (kw === 'component' || (elemArchetype && elemArchetype.resolvedBaseType === 'component')) {
       this.pos += 1;
-      this.parseComponent(container, compIdent, compStartLine);
-    } else if (kw === 'group') {
+      this.parseComponent(container, compIdent, compStartLine, elemArchetype);
+    } else if (kw === 'group' || (elemArchetype && elemArchetype.resolvedBaseType === 'group')) {
       this.pos += 1;
       const groupName = this.expectStringOrIdentifier();
       this.expect('LBRACE');
@@ -1006,12 +1545,17 @@ export class Parser {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseRelationshipDetails(containerIdent, dest, nextCurr.line);
+    } else if (nextCurr.type === 'ARCHETYPE_ARROW') {
+      const archName = nextCurr.value.slice(2, -2);
+      this.pos += 1;
+      const dest = this.expect('IDENTIFIER').value;
+      this.parseRelationshipDetails(containerIdent, dest, nextCurr.line, archName);
     } else if (nextCurr.type === 'REMOVE_ARROW') {
       this.pos += 1;
       const dest = this.expect('IDENTIFIER').value;
       this.parseStringArgs();
       this.removeRelationship(containerIdent, dest);
-    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+    } else if (nextCurr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
       this.parseRelationship(nextCurr.value, nextCurr.line);
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
       this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
@@ -1034,18 +1578,28 @@ export class Parser {
     } else if (kw === 'properties') {
       this.pos += 1;
       this.parsePropertiesBody(container.properties);
+    } else if (kw === 'perspectives') {
+      this.pos += 1;
+      if (!container.perspectives) container.perspectives = [];
+      this.parsePerspectivesBody(container.perspectives);
     } else {
       this.pos += 1;
     }
   }
 
-  private parseComponent(container: Container, identifier: string | null = null, startLine?: number) {
+  private parseComponent(container: Container, identifier: string | null = null, startLine?: number, archetype?: ElementArchetype) {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Component';
-    const desc = args.length > 1 ? args[1] : '';
-    const tech = args.length > 2 ? args[2] : '';
-    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Component');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const tech = args.length > 2 ? args[2] : (archetype?.technology || '');
+    const explicitTags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
     if (!tags.includes('Component')) tags.unshift('Component');
     if (!tags.includes('Element')) tags.push('Element');
 
@@ -1074,8 +1628,10 @@ export class Parser {
       description: desc,
       technology: tech,
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -1097,12 +1653,17 @@ export class Parser {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(componentIdent, dest, curr.line);
+        } else if (curr.type === 'ARCHETYPE_ARROW') {
+          const archName = curr.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(componentIdent, dest, curr.line, archName);
         } else if (curr.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(componentIdent, dest);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -1125,6 +1686,10 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(component.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!component.perspectives) component.perspectives = [];
+          this.parsePerspectivesBody(component.perspectives);
         } else {
           this.pos += 1;
         }
@@ -1158,13 +1723,15 @@ export class Parser {
 
     const nextCurr = this.current();
     const kw = nextCurr.type === 'IDENTIFIER' ? nextCurr.value.toLowerCase() : '';
-    if (kw === 'deploymentnode') {
+    const elemArchetype = this.getElementArchetype(kw);
+
+    if (kw === 'deploymentnode' || (elemArchetype && elemArchetype.resolvedBaseType === 'deploymentNode')) {
       this.pos += 1;
-      this.parseDeploymentNode(envName, null, identifier, startLine);
-    } else if (kw === 'infrastructurenode') {
+      this.parseDeploymentNode(envName, null, identifier, startLine, elemArchetype);
+    } else if (kw === 'infrastructurenode' || (elemArchetype && elemArchetype.resolvedBaseType === 'infrastructureNode')) {
       this.pos += 1;
-      this.parseInfrastructureNode(envName, null, identifier, startLine);
-    } else if (kw === 'group') {
+      this.parseInfrastructureNode(envName, null, identifier, startLine, elemArchetype);
+    } else if (kw === 'group' || (elemArchetype && elemArchetype.resolvedBaseType === 'group')) {
       this.pos += 1;
       const groupName = this.expectStringOrIdentifier();
       this.expect('LBRACE');
@@ -1177,7 +1744,7 @@ export class Parser {
     } else if (kw === 'deploymentgroup') {
       this.pos += 1;
       this.parseStringArgs();
-    } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+    } else if (nextCurr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
       this.parseRelationship(nextCurr.value, nextCurr.line);
     } else if (nextCurr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
       this.parseRelationshipRemoval(nextCurr.value, nextCurr.line);
@@ -1190,14 +1757,21 @@ export class Parser {
     envName: string,
     parentNodeId: string | null = null,
     identifier: string | null = null,
-    startLine?: number
+    startLine?: number,
+    archetype?: ElementArchetype
   ): DeploymentNode {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Deployment Node';
-    const desc = args.length > 1 ? args[1] : '';
-    const tech = args.length > 2 ? args[2] : '';
-    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Deployment Node');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const tech = args.length > 2 ? args[2] : (archetype?.technology || '');
+    const explicitTags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
     const instances = args.length > 4 ? args[4] : 1;
 
     if (!tags.includes('Deployment Node')) tags.unshift('Deployment Node');
@@ -1220,8 +1794,10 @@ export class Parser {
       infrastructureNodes: [],
       parentNodeId,
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -1240,13 +1816,15 @@ export class Parser {
 
         const curr = this.current();
         const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
-        if (kw === 'deploymentnode') {
+        const elemArchetype = this.getElementArchetype(kw);
+
+        if (kw === 'deploymentnode' || (elemArchetype && elemArchetype.resolvedBaseType === 'deploymentNode')) {
           this.pos += 1;
-          const childNode = this.parseDeploymentNode(envName, node.id, childIdent, cStartLine);
+          const childNode = this.parseDeploymentNode(envName, node.id, childIdent, cStartLine, elemArchetype);
           node.children.push(childNode);
-        } else if (kw === 'infrastructurenode') {
+        } else if (kw === 'infrastructurenode' || (elemArchetype && elemArchetype.resolvedBaseType === 'infrastructureNode')) {
           this.pos += 1;
-          const infra = this.parseInfrastructureNode(envName, node.id, childIdent, cStartLine);
+          const infra = this.parseInfrastructureNode(envName, node.id, childIdent, cStartLine, elemArchetype);
           if (!node.infrastructureNodes) node.infrastructureNodes = [];
           node.infrastructureNodes.push(infra);
         } else if (kw === 'containerinstance' || kw === 'instanceof') {
@@ -1277,7 +1855,11 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(node.properties);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!node.perspectives) node.perspectives = [];
+          this.parsePerspectivesBody(node.perspectives);
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -1301,14 +1883,21 @@ export class Parser {
     envName: string,
     parentNodeId: string | null = null,
     identifier: string | null = null,
-    startLine?: number
+    startLine?: number,
+    archetype?: ElementArchetype
   ): InfrastructureNode {
     const sLine = startLine ?? this.current().line;
     const args = this.parseStringArgs();
-    const name = args.length > 0 ? args[0] : 'Infrastructure Node';
-    const desc = args.length > 1 ? args[1] : '';
-    const tech = args.length > 2 ? args[2] : '';
-    const tags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const name = args.length > 0 ? args[0] : (archetype ? archetype.name : 'Infrastructure Node');
+    const desc = args.length > 1 ? args[1] : (archetype?.description || '');
+    const tech = args.length > 2 ? args[2] : (archetype?.technology || '');
+    const explicitTags = args.length > 3 ? args[3].split(',').map((t) => t.trim()) : [];
+    const tags = [...explicitTags];
+    if (archetype?.tags) {
+      for (const t of archetype.tags) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+    }
 
     if (!tags.includes('Infrastructure Node')) tags.unshift('Infrastructure Node');
     if (!tags.includes('Element')) tags.push('Element');
@@ -1324,8 +1913,10 @@ export class Parser {
       environment: envName,
       parentNodeId,
       tags,
-      properties: {},
-      group: this.currentGroup || undefined
+      properties: archetype?.properties ? { ...archetype.properties } : {},
+      perspectives: archetype?.perspectives ? JSON.parse(JSON.stringify(archetype.perspectives)) : [],
+      group: this.currentGroup || undefined,
+      archetype: archetype?.name
     };
 
     this.identifierToId.set(ident, eid);
@@ -1355,16 +1946,25 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(infra.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!infra.perspectives) infra.perspectives = [];
+          this.parsePerspectivesBody(infra.perspectives);
         } else if (curr.type === 'ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(ident, dest, curr.line);
+        } else if (curr.type === 'ARCHETYPE_ARROW') {
+          const archName = curr.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(ident, dest, curr.line, archName);
         } else if (curr.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(ident, dest);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -1424,6 +2024,10 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(cInst.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!cInst.perspectives) cInst.perspectives = [];
+          this.parsePerspectivesBody(cInst.perspectives);
         } else if (kw === 'tag') {
           this.pos += 1;
           this.addTags(cInst.tags, [this.expectStringOrIdentifier()]);
@@ -1434,12 +2038,17 @@ export class Parser {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(cInst.identifier, dest, curr.line);
+        } else if (curr.type === 'ARCHETYPE_ARROW') {
+          const archName = curr.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(cInst.identifier, dest, curr.line, archName);
         } else if (curr.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(cInst.identifier, dest);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -1495,6 +2104,10 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(sInst.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!sInst.perspectives) sInst.perspectives = [];
+          this.parsePerspectivesBody(sInst.perspectives);
         } else if (kw === 'tag') {
           this.pos += 1;
           this.addTags(sInst.tags, [this.expectStringOrIdentifier()]);
@@ -1505,12 +2118,17 @@ export class Parser {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseRelationshipDetails(sInst.identifier, dest, curr.line);
+        } else if (curr.type === 'ARCHETYPE_ARROW') {
+          const archName = curr.value.slice(2, -2);
+          this.pos += 1;
+          const dest = this.expect('IDENTIFIER').value;
+          this.parseRelationshipDetails(sInst.identifier, dest, curr.line, archName);
         } else if (curr.type === 'REMOVE_ARROW') {
           this.pos += 1;
           const dest = this.expect('IDENTIFIER').value;
           this.parseStringArgs();
           this.removeRelationship(sInst.identifier, dest);
-        } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        } else if (curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           this.parseRelationship(curr.value, curr.line);
         } else if (curr.type === 'IDENTIFIER' && this.peekNext().type === 'REMOVE_ARROW') {
           this.parseRelationshipRemoval(curr.value, curr.line);
@@ -1524,18 +2142,32 @@ export class Parser {
   private parseRelationship(sourceIdent: string, startLine?: number) {
     const sLine = startLine ?? this.current().line;
     this.pos += 1; // consume source identifier
-    this.expect('ARROW');
+    let archetypeName: string | undefined;
+    if (this.current().type === 'ARCHETYPE_ARROW') {
+      archetypeName = this.expect('ARCHETYPE_ARROW').value.slice(2, -2);
+    } else {
+      this.expect('ARROW');
+    }
     const destIdent = this.expectStringOrIdentifier();
-    this.parseRelationshipDetails(sourceIdent, destIdent, sLine);
+    this.parseRelationshipDetails(sourceIdent, destIdent, sLine, archetypeName);
   }
 
-  private parseRelationshipDetails(sourceIdent: string, destIdent: string, startLine?: number) {
+  private parseRelationshipDetails(sourceIdent: string, destIdent: string, startLine?: number, archetypeName?: string) {
     const sLine = startLine ?? this.current().line;
+    let relArchetype: RelationshipArchetype | undefined;
+    if (archetypeName) {
+      relArchetype = this.getRelationshipArchetype(archetypeName);
+      if (!relArchetype) {
+        throw new ParseError(`Unknown relationship archetype '${archetypeName}'`, sLine, 0);
+      }
+    }
+
     const args = this.parseStringArgs();
-    const desc = args.length > 0 ? args[0] : '';
-    const tech = args.length > 1 ? args[1] : '';
-    const tags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
-    if (!tags.includes('Relationship')) tags.unshift('Relationship');
+    const desc = args.length > 0 ? args[0] : (relArchetype?.description || '');
+    const tech = args.length > 1 ? args[1] : (relArchetype?.technology || '');
+    const explicitTags = args.length > 2 ? args[2].split(',').map((t) => t.trim()) : [];
+    const tags = ['Relationship', ...(relArchetype?.tags || [])];
+    this.addTags(tags, explicitTags);
 
     const rid = this.getId();
     const rel: Relationship = {
@@ -1548,8 +2180,12 @@ export class Parser {
       technology: tech,
       interactionStyle: 'Synchronous',
       tags,
-      properties: {}
+      properties: { ...(relArchetype?.properties || {}) },
+      perspectives: relArchetype?.perspectives ? JSON.parse(JSON.stringify(relArchetype.perspectives)) : undefined
     };
+    if (archetypeName) {
+      rel.archetype = archetypeName;
+    }
     this.workspace.model.relationships.push(rel);
 
     if (this.match('LBRACE')) {
@@ -1574,6 +2210,10 @@ export class Parser {
         } else if (kw === 'properties') {
           this.pos += 1;
           this.parsePropertiesBody(rel.properties);
+        } else if (kw === 'perspectives') {
+          this.pos += 1;
+          if (!rel.perspectives) rel.perspectives = [];
+          this.parsePerspectivesBody(rel.perspectives);
         } else {
           this.pos += 1;
         }
@@ -1607,6 +2247,11 @@ export class Parser {
       this.pos += 1;
       this.workspace.themes.push(...this.parseStringArgs());
       return;
+    } else if (kw === 'terminology') {
+      this.pos += 1;
+      if (!this.workspace.terminology) this.workspace.terminology = {};
+      this.parseTerminologyBody(this.workspace.terminology);
+      return;
     } else {
       this.pos += 1;
     }
@@ -1624,7 +2269,7 @@ export class Parser {
       const curr = this.current();
 
       // Check for incoming arrow: ->element
-      if (curr.type === 'ARROW') {
+      if (curr.type === 'ARROW' || curr.type === 'ARCHETYPE_ARROW') {
         this.pos += 1;
         if (this.current().type === 'IDENTIFIER' || this.current().type === 'STRING') {
           const target = this.expectStringOrIdentifier();
@@ -1646,7 +2291,7 @@ export class Parser {
         this.pos += 1;
 
         // Check if followed by -> (outgoing: elem->, or specific: elem -> elem2)
-        if (this.current().type === 'ARROW' && this.current().line === startLine) {
+        if ((this.current().type === 'ARROW' || this.current().type === 'ARCHETYPE_ARROW') && this.current().line === startLine) {
           this.pos += 1;
           if (
             (this.current().type === 'IDENTIFIER' || this.current().type === 'STRING') &&
@@ -1684,8 +2329,19 @@ export class Parser {
     let key: string | null = null;
     let desc = '';
     let env: string | null = null;
+    let baseKey: string | null = null;
+    let filterMode: 'include' | 'exclude' | null = null;
+    let filterTags: string[] = [];
 
-    if (['systemcontext', 'container', 'component'].includes(viewType)) {
+    if (viewType === 'filtered') {
+      baseKey = args.length > 0 ? args[0] : '';
+      const modeRaw = (args.length > 1 ? args[1] : 'include').toLowerCase();
+      filterMode = modeRaw === 'exclude' ? 'exclude' : 'include';
+      const tagsRaw = args.length > 2 ? args[2] : '';
+      filterTags = tagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
+      key = args.length > 3 ? args[3] : `${baseKey}_filtered_${tagsRaw.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      desc = args.length > 4 ? args[4] : '';
+    } else if (['systemcontext', 'container', 'component'].includes(viewType)) {
       if (args.length > 0) targetRef = args[0];
       if (args.length > 1) key = args[1];
       if (args.length > 2) desc = args[2];
@@ -1715,6 +2371,9 @@ export class Parser {
       softwareSystemId: ['systemcontext', 'container', 'deployment'].includes(viewType) ? targetRef : null,
       containerId: viewType === 'component' ? targetRef : null,
       environment: env,
+      baseViewKey: baseKey,
+      filterMode,
+      filterTags,
       includeAll: false,
       includedElementIds: [],
       excludedElementIds: [],
@@ -1729,13 +2388,20 @@ export class Parser {
         const vkw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
 
         // Check dynamic step in dynamic view: source -> destination "description" [technology]
-        if (viewType === 'dynamic' && curr.type === 'IDENTIFIER' && this.peekNext().type === 'ARROW') {
+        if (viewType === 'dynamic' && curr.type === 'IDENTIFIER' && (this.peekNext().type === 'ARROW' || this.peekNext().type === 'ARCHETYPE_ARROW')) {
           const sIdent = curr.value;
-          this.pos += 2; // consume identifier and ARROW
+          this.pos += 1; // consume identifier
+          let stepArchName: string | undefined;
+          if (this.current().type === 'ARCHETYPE_ARROW') {
+            stepArchName = this.expect('ARCHETYPE_ARROW').value.slice(2, -2);
+          } else {
+            this.expect('ARROW');
+          }
+          const relArch = stepArchName ? this.getRelationshipArchetype(stepArchName) : undefined;
           const dIdent = this.expectStringOrIdentifier();
           const stepArgs = this.parseStringArgs();
-          const stepDesc = stepArgs[0] || '';
-          const stepTech = stepArgs[1] || '';
+          const stepDesc = stepArgs[0] || relArch?.description || '';
+          const stepTech = stepArgs[1] || relArch?.technology || '';
           if (!view.dynamicSteps) view.dynamicSteps = [];
           view.dynamicSteps.push({
             order: view.dynamicSteps.length + 1,
@@ -1789,17 +2455,26 @@ export class Parser {
     this.workspace.views.push(view);
   }
 
-  private parseStylesBody() {
+  private parseStylesBody(mode: 'light' | 'dark' | null = null) {
     const curr = this.current();
     if (curr.type === 'RBRACE' || curr.type === 'EOF') {
       return;
     }
 
     const kw = curr.type === 'IDENTIFIER' ? curr.value.toLowerCase() : '';
-    if (kw === 'element') {
+    if (kw === 'light' || kw === 'dark') {
+      const subMode = kw as 'light' | 'dark';
+      this.pos += 1;
+      if (this.match('LBRACE')) {
+        while (!this.match('RBRACE') && !this.match('EOF')) {
+          this.parseStylesBody(subMode);
+        }
+      }
+      return;
+    } else if (kw === 'element') {
       this.pos += 1;
       const tag = this.expectStringOrIdentifier();
-      const style: ElementStyle = { tag };
+      const style: ElementStyle = { tag, mode };
       if (this.match('LBRACE')) {
         while (!this.match('RBRACE') && !this.match('EOF')) {
           const prop = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
@@ -1807,28 +2482,38 @@ export class Parser {
           const val = this.expectStringOrIdentifier();
           if (prop === 'shape') style.shape = val;
           else if (prop === 'background') style.background = val;
-          else if (prop === 'color') style.color = val;
+          else if (prop === 'color' || prop === 'colour') style.color = val;
           else if (prop === 'stroke') style.stroke = val;
           else if (prop === 'strokewidth' || prop === 'stroke_width') style.strokeWidth = parseInt(val, 10) || null;
           else if (prop === 'fontsize' || prop === 'font_size') style.fontSize = parseInt(val, 10) || null;
           else if (prop === 'opacity') style.opacity = parseInt(val, 10) || null;
+          else if (prop === 'border') style.border = val;
+          else if (prop === 'icon') style.icon = val;
+          else if (prop === 'width') style.width = parseInt(val, 10) || null;
+          else if (prop === 'height') style.height = parseInt(val, 10) || null;
+          else if (prop === 'metadata') style.metadata = val.toLowerCase() === 'true';
+          else if (prop === 'description') style.description = val.toLowerCase() === 'true';
         }
       }
       this.workspace.elementStyles.push(style);
     } else if (kw === 'relationship') {
       this.pos += 1;
       const tag = this.expectStringOrIdentifier();
-      const relStyle: RelationshipStyle = { tag };
+      const relStyle: RelationshipStyle = { tag, mode };
       if (this.match('LBRACE')) {
         while (!this.match('RBRACE') && !this.match('EOF')) {
           const prop = this.current().type === 'IDENTIFIER' ? this.current().value.toLowerCase() : '';
           this.pos += 1;
           const val = this.expectStringOrIdentifier();
           if (prop === 'thickness') relStyle.thickness = parseInt(val, 10) || null;
-          else if (prop === 'color') relStyle.color = val;
+          else if (prop === 'color' || prop === 'colour') relStyle.color = val;
           else if (prop === 'style') relStyle.style = val;
           else if (prop === 'routing') relStyle.routing = val;
           else if (prop === 'dashed') relStyle.dashed = val.toLowerCase() === 'true';
+          else if (prop === 'fontsize' || prop === 'font_size') relStyle.fontSize = parseInt(val, 10) || null;
+          else if (prop === 'width') relStyle.width = parseInt(val, 10) || null;
+          else if (prop === 'position') relStyle.position = parseInt(val, 10) || null;
+          else if (prop === 'opacity') relStyle.opacity = parseInt(val, 10) || null;
         }
       }
       this.workspace.relationshipStyles.push(relStyle);

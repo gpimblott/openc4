@@ -263,6 +263,7 @@ export interface AddRelationshipOptions {
   targetId: string;
   description?: string;
   technology?: string;
+  archetype?: string;
 }
 
 export interface AddRelationshipResult {
@@ -288,8 +289,9 @@ export function addRelationshipToDsl(dslCode: string, options: AddRelationshipOp
   const targetIdent = targetResolved.identifier;
   const desc = (options.description || '').trim();
   const tech = (options.technology || '').trim();
+  const arrow = options.archetype ? `--${options.archetype}->` : '->';
 
-  let relLine = `${sourceIdent} -> ${targetIdent}`;
+  let relLine = `${sourceIdent} ${arrow} ${targetIdent}`;
   if (desc && tech) {
     relLine += ` "${desc}" "${tech}"`;
   } else if (desc) {
@@ -380,6 +382,7 @@ export interface UpdateRelationshipOptions {
   targetId?: string;
   description?: string;
   technology?: string;
+  archetype?: string;
 }
 
 export interface UpdateRelationshipResult {
@@ -452,7 +455,20 @@ export function updateRelationshipInDsl(dslCode: string, options: UpdateRelation
   const indentMatch = origLine.match(/^(\s*)/);
   const indent = indentMatch ? indentMatch[1] : '        ';
 
-  let newRelLine = `${indent}${sourceIdent} -> ${targetIdent}`;
+  // Determine arrow: check options.archetype or preserve existing
+  let arrow = '->';
+  if (options.archetype !== undefined) {
+    arrow = options.archetype ? `--${options.archetype}->` : '->';
+  } else if (targetRel.archetype) {
+    arrow = `--${targetRel.archetype}->`;
+  } else {
+    const archMatch = origLine.match(/--([a-zA-Z0-9_\-]+)->/);
+    if (archMatch) {
+      arrow = `--${archMatch[1]}->`;
+    }
+  }
+
+  let newRelLine = `${indent}${sourceIdent} ${arrow} ${targetIdent}`;
   if (desc && tech) {
     newRelLine += ` "${desc}" "${tech}"`;
   } else if (desc) {

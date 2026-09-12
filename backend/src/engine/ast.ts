@@ -2,9 +2,30 @@
  * Core AST models for Structurizr DSL and C4 Architecture Models.
  */
 
+export interface Perspective {
+  name: string;
+  description: string;
+  value?: string;
+  url?: string;
+}
+
+export interface Terminology {
+  person?: string;
+  softwareSystem?: string;
+  container?: string;
+  component?: string;
+  deploymentNode?: string;
+  infrastructureNode?: string;
+  relationship?: string;
+  metadata?: string;
+}
+
 export interface ElementStyle {
   tag: string;
   shape?: string | null;
+  icon?: string | null;
+  width?: number | null;
+  height?: number | null;
   background?: string | null;
   color?: string | null;
   stroke?: string | null;
@@ -14,6 +35,7 @@ export interface ElementStyle {
   opacity?: number | null;
   metadata?: boolean | null;
   description?: boolean | null;
+  mode?: 'light' | 'dark' | null;
 }
 
 export interface RelationshipStyle {
@@ -27,6 +49,44 @@ export interface RelationshipStyle {
   dashed?: boolean | null;
   position?: number | null;
   opacity?: number | null;
+  mode?: 'light' | 'dark' | null;
+}
+
+export type ArchetypeBaseType =
+  | 'person'
+  | 'softwareSystem'
+  | 'container'
+  | 'component'
+  | 'deploymentNode'
+  | 'infrastructureNode'
+  | 'group'
+  | 'element';
+
+export interface ElementArchetype {
+  name: string;
+  baseType: string;
+  resolvedBaseType: ArchetypeBaseType;
+  description?: string;
+  technology?: string;
+  tags?: string[];
+  properties?: Record<string, string>;
+  perspectives?: Perspective[];
+  metadata?: string;
+}
+
+export interface RelationshipArchetype {
+  name: string;
+  baseType: string;
+  description?: string;
+  technology?: string;
+  tags?: string[];
+  properties?: Record<string, string>;
+  perspectives?: Perspective[];
+}
+
+export interface Archetypes {
+  elements: Record<string, ElementArchetype>;
+  relationships: Record<string, RelationshipArchetype>;
 }
 
 export interface Relationship {
@@ -40,10 +100,12 @@ export interface Relationship {
   interactionStyle: string;
   tags: string[];
   properties: Record<string, string>;
+  perspectives?: Perspective[];
   url?: string | null;
   lineRange?: { startLine: number; endLine: number };
   implied?: boolean;
   linkedRelationshipId?: string;
+  archetype?: string;
 }
 
 export interface BaseElement {
@@ -53,9 +115,11 @@ export interface BaseElement {
   description: string;
   tags: string[];
   properties: Record<string, string>;
+  perspectives?: Perspective[];
   url?: string | null;
   lineRange?: { startLine: number; endLine: number };
   group?: string | null;
+  archetype?: string;
 }
 
 export interface Person extends BaseElement {
@@ -134,12 +198,15 @@ export interface DynamicStep {
 
 export interface View {
   key: string;
-  viewType: string; // systemLandscape, systemContext, container, component, dynamic, deployment
+  viewType: string; // systemLandscape, systemContext, container, component, dynamic, deployment, filtered
   title: string;
   description: string;
   softwareSystemId?: string | null;
   containerId?: string | null;
   environment?: string | null;
+  baseViewKey?: string | null;
+  filterMode?: 'include' | 'exclude' | null;
+  filterTags?: string[];
   includeAll: boolean;
   includedElementIds: string[];
   excludedElementIds: string[];
@@ -152,11 +219,18 @@ export interface View {
   dynamicSteps?: DynamicStep[];
 }
 
+export interface CustomElement extends BaseElement {
+  type?: string;
+  metadata?: string;
+}
+
 export interface Model {
   people: Person[];
   softwareSystems: SoftwareSystem[];
   deploymentNodes: DeploymentNode[];
   relationships: Relationship[];
+  customElements?: CustomElement[];
+  archetypes?: Archetypes;
   lineRange?: { startLine: number; endLine: number };
   impliedRelationships?: boolean | string;
 }
@@ -168,6 +242,8 @@ export interface Workspace {
   version?: string | null;
   defaultView?: string | null;
   impliedRelationships?: boolean | string;
+  terminology?: Terminology;
+  archetypes?: Archetypes;
   model: Model;
   views: View[];
   elementStyles: ElementStyle[];

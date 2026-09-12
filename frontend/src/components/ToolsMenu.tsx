@@ -4,6 +4,7 @@ import {
   ShieldAlert,
   GitCompare,
   Cpu,
+  UploadCloud,
   ChevronDown,
 } from 'lucide-react';
 
@@ -12,6 +13,7 @@ interface ToolsMenuProps {
   onOpenInspection: () => void;
   onOpenDiff: () => void;
   onOpenMcpValidation: () => void;
+  onOpenPublish: () => void;
 }
 
 export function ToolsMenu({
@@ -19,6 +21,7 @@ export function ToolsMenu({
   onOpenInspection,
   onOpenDiff,
   onOpenMcpValidation,
+  onOpenPublish,
 }: ToolsMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -152,6 +155,28 @@ export function ToolsMenu({
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
                 Validate syntax and model against local Structurizr MCP server
+              </p>
+            </div>
+          </button>
+
+          {/* Publish to Structurizr */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false);
+              onOpenPublish();
+            }}
+            className="w-full text-left p-2 rounded-lg flex items-start gap-2.5 hover:bg-slate-800 transition cursor-pointer group border-t border-slate-800/80 pt-2 mt-1"
+          >
+            <div className="p-1.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/25 mt-0.5 group-hover:bg-purple-500/25">
+              <UploadCloud className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-slate-100 group-hover:text-white">
+                Publish to Structurizr
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                Publish architecture model to local Structurizr Playground or Lite
               </p>
             </div>
           </button>

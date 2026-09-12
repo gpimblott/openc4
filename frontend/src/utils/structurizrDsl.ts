@@ -32,14 +32,15 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
 
   monaco.languages.setMonarchTokensProvider('structurizr', {
     keywords: [
-      'workspace', 'model', 'views', 'styles', 'configuration', 'theme', 'themes',
+      'workspace', 'model', 'views', 'styles', 'configuration', 'theme', 'themes', 'archetypes',
       'person', 'softwareSystem', 'system', 'container', 'component',
       'deploymentEnvironment', 'deploymentNode', 'infrastructureNode',
       'containerInstance', 'softwareInstance', 'softwareSystemInstance', 'instances', 'healthCheck',
       'systemLandscape', 'systemContext', 'dynamic', 'deployment', 'filtered',
       'include', 'exclude', 'autoLayout', 'title', 'description', 'properties', 'tag', 'tags', 'url', 'technology', 'default',
-      'element', 'relationship', 'shape', 'background', 'color', 'stroke', 'strokeWidth',
-      'fontSize', 'border', 'opacity', 'thickness', 'style', 'routing', 'dashed'
+      'element', 'relationship', 'shape', 'background', 'color', 'colour', 'stroke', 'strokeWidth',
+      'fontSize', 'border', 'opacity', 'thickness', 'style', 'routing', 'dashed', 'icon', 'width', 'height',
+      'perspectives', 'perspective', 'terminology', 'light', 'dark', 'metadata'
     ],
 
     directives: [
@@ -63,6 +64,7 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
         [/"([^"\\]|\\.)*"/, 'string'],
         [/'([^'\\]|\\.)*'/, 'string'],
         [/-\/>/, 'operator.remove_arrow'],
+        [/--[a-zA-Z0-9_\-]+->/, 'operator.archetype_arrow'],
         [/->/, 'operator.arrow'],
         [/=/, 'operator.equals'],
         [/[a-zA-Z_$][\w$]*/, {
@@ -193,9 +195,30 @@ export const registerStructurizrDsl = (monaco: Monaco) => {
           range,
         },
         {
-          label: 'containerView',
+          label: 'filteredView',
           kind: monaco.languages.CompletionItemKind.Snippet,
-          insertText: 'container ${1:systemIdentifier} "${2:Key}" {\n    include *\n    autoLayout tb\n}',
+          insertText: 'filtered ${1:baseViewKey} ${2|include,exclude|} "${3:Tags}" "${4:Key}" "${5:Description}"',
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          range,
+        },
+        {
+          label: 'perspectives',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: 'perspectives {\n    "${1:Security}" "${2:Handles high-security payment data}" "${3:Tier-1}"\n}',
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          range,
+        },
+        {
+          label: 'terminology',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: 'terminology {\n    person "${1:Actor}"\n    softwareSystem "${2:System}"\n    container "${3:Microservice}"\n    component "${4:Module}"\n}',
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          range,
+        },
+        {
+          label: 'archetypes',
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: 'archetypes {\n    ${1:application} = ${2:container} {\n        technology "${3:Java and Spring Boot}"\n    }\n    ${4:https} = -> {\n        technology "HTTPS"\n        tags "Secure"\n    }\n}',
           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
           range,
         },

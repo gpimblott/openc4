@@ -4,32 +4,37 @@
 > ### 🚧 Prototype — Work in Progress
 > OpenC4 is currently an early-stage prototype under active development.
 
-This directory (`/docs`) contains the static documentation and showcase website for **OpenC4** — the open-source C4 architecture tool.
+This directory (`/docs`) contains the static documentation and showcase website for **OpenC4** — the open-source C4 architecture tool — published via GitHub Pages to [openc4.bitwrangler.uk](https://openc4.bitwrangler.uk).
 
 ## Features of this Website
 
 - **Zero-Build Static Architecture**: Runs natively on any static web host, specifically optimized for **GitHub Pages**.
-- **Live Application Visuals**:
-  - High-resolution screenshot of the running OpenC4 Web Studio in `docs/assets/openc4-studio-screenshot.png`.
-- **Complete OpenC4 Architecture Self-Model**:
-  - System Context, Container, and Backend Component diagrams compiled with OpenC4's native MCP server.
-- **Interactive Live Architecture Studio & Playground**:
-  - Live split-screen showing C4 DSL on the left and an interactive C4 diagram on the right.
-  - Interactive drill-down (Context &rarr; Container &rarr; Component &rarr; Deployment).
-  - Preloaded architecture presets (OpenC4 Platform self-model, Internet Banking, E-Commerce Microservices).
-  - Export modal showing live-compiled Mermaid, C4-PlantUML, and Structurizr JSON.
+- **Live Application Showcase**: High-resolution screenshot and visual tour of the real OpenC4 Web Studio in `docs/assets/openc4-studio-screenshot.png`.
+- **Complete Architecture Lifecycle Pipeline**: Step-by-step breakdown from Structurizr DSL modeling to interactive React Flow canvas rendering, automated quality inspection, and universal multi-format export.
+- **Latest Feature Showcases**:
+  - **Authentication & RBAC**: CASL-based permissions, Admin/Architect/Viewer seeded roles, and 1-click Quick Role Switcher.
+  - **Modular Multi-File Workspaces & Drag-and-Drop**: `!include <file>` and `!include <dir/>` resolution, sidebar folder explorer, automatic AST refactoring, tab state preservation, and 1-to-1 error line mapping.
+  - **Structurizr DSL Phase 3**: Archetypes with inheritance, architectural Perspectives (Security, Performance), custom Terminology overrides, extended node styles (`border`, `opacity`, `icon`), and Themes (AWS, Azure, default).
+  - **Implied Relationships Engine**: Configurable strategies for automatic ancestor relationship derivation.
+  - **Canvas Relationship Editor**: Create, edit, reconnect, reverse, and delete relationships with real-time bidirectional DSL sync.
+  - **Local & Remote Structurizr MCP Validation**: In-studio diagnostics to test and validate models against any MCP server.
+  - **Direct Structurizr Publishing & CLI**: Direct publish from Web Studio and drop-in REST API replacement for `structurizr-cli`.
+  - **Architecture Quality Linter**: Dual-tab inspection drawer for rule violations and perspective auditing.
+  - **Multi-Format Export**: One-click export to Mermaid (Git READMEs), C4-PlantUML, Structurizr JSON, SVG, PNG, and DSL.
 - **Comprehensive Step-by-Step Guides**:
-  - Quickstart with Docker & local Node.js
-  - C4 DSL Modeling Guide
-  - CI/CD integration with `structurizr-cli`
-  - AI & Model Context Protocol (MCP) configuration
-  - Exporting diagrams to Mermaid for GitHub/GitLab markdown
+  - Quickstart with Node.js (`./run.sh`), Docker Compose, and seeded accounts.
+  - C4 DSL & Phase 3 Modeling Guide.
+  - Modular multi-file architecture with `!include`.
+  - Authentication and CASL permission matrix.
+  - CI/CD integration with `structurizr-cli`.
+  - AI & Model Context Protocol (MCP) configuration.
+  - Mermaid markdown export for GitHub/GitLab READMEs.
 - **Full Compatibility Matrix**:
   - Comparing OpenC4 with legacy Structurizr on-premises, manual drawing tools, and raw text diagrams.
 - **Dark / Light Mode**:
-  - Accessible theme toggling with smooth transitions and `localStorage` persistence.
-- **Modern Accessibility & Performance**:
-  - Responsive design using CSS custom properties, native `<dialog>` and `<details>` elements, and keyboard navigation.
+  - Accessible theme toggling with smooth transitions, OS preference detection, and `localStorage` persistence.
+- **Modern Developer Design System**:
+  - Clean, accessible typographic hierarchy using CSS custom properties, native `<details>` accordion, and keyboard navigation.
 
 ---
 

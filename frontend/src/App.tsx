@@ -45,6 +45,7 @@ import { InspectionDrawer } from './components/InspectionDrawer';
 import type { InspectionFinding } from './components/InspectionDrawer';
 import { ExportModal } from './components/ExportModal';
 import { McpValidationModal } from './components/McpValidationModal';
+import { StructurizrPublishModal } from './components/StructurizrPublishModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { PublishVersionModal } from './components/PublishVersionModal';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
@@ -161,8 +162,10 @@ export function App() {
 
   const [isDiffOpen, setIsDiffOpen] = useState(false);
   const [isInspectionOpen, setIsInspectionOpen] = useState(false);
+  const [terminology, setTerminology] = useState<Record<string, string> | undefined>();
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
+  const [isStructurizrPublishOpen, setIsStructurizrPublishOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const editorRef = useRef<any>(null);
@@ -312,6 +315,7 @@ export function App() {
       setNodes(allNodes);
       setEdges(updatedEdges);
       setAvailableViews(canvas.availableViews || []);
+      setTerminology(canvas.terminology);
       if (targetViewKey || canvas.viewKey) {
         setCurrentViewKey(targetViewKey || canvas.viewKey);
       }
@@ -1671,12 +1675,13 @@ export function App() {
 
         {/* Right: Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Tools Menu (Inspection, Diff, MCP Validate) */}
+          {/* Tools Menu (Inspection, Diff, MCP Validate, Structurizr Publish) */}
           <ToolsMenu
             findingsCount={findings.length}
             onOpenInspection={() => setIsInspectionOpen(true)}
             onOpenDiff={() => handleOpenDiff()}
             onOpenMcpValidation={() => setIsMcpModalOpen(true)}
+            onOpenPublish={() => setIsStructurizrPublishOpen(true)}
           />
 
           {/* Export Menu */}
@@ -2246,6 +2251,9 @@ export function App() {
         isOpen={isInspectionOpen}
         onClose={() => setIsInspectionOpen(false)}
         findings={findings}
+        terminology={terminology}
+        nodes={nodes}
+        edges={edges}
       />
 
       <ExportModal
@@ -2264,6 +2272,15 @@ export function App() {
         activeFile={activeFile}
         onApplyError={(err) => setParseError(err)}
         onJumpToError={handleJumpToError}
+      />
+
+      <StructurizrPublishModal
+        isOpen={isStructurizrPublishOpen}
+        onClose={() => setIsStructurizrPublishOpen(false)}
+        dslCode={dslCode}
+        files={files}
+        entryPoint={entryPoint}
+        activeFile={activeFile}
       />
 
       <PublishVersionModal

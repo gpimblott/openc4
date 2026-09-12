@@ -281,6 +281,14 @@ OpenC4 Web Studio includes a dedicated **MCP Validate** tool enabling architects
 - **Diagnostics & Error Mapping**: Displays workspace metrics (elements, relationships, views, latency) on success, or pinpoints syntax errors with code snippet previews and one-click "Jump to Error in Editor".
 - **Raw JSON-RPC Inspector**: Collapsible viewer to inspect the raw JSON-RPC 2.0 payload returned by the MCP server.
 
+### Publish to Local Structurizr in Web Studio
+OpenC4 Web Studio includes a dedicated **Publish to Structurizr** tool enabling architects to push their current architecture directly to any running local Structurizr instance (e.g., Structurizr Playground or Structurizr Lite on `http://localhost:8080`, or Structurizr MCP servers):
+- **Multiple Protocols**: Supports official Structurizr Web API (`PUT /api/workspace/{id}`) using native Structurizr JSON format, or MCP JSON-RPC protocol (`updateWorkspace`).
+- **Server Location & Connectivity**: Configure target server endpoints (`http://localhost:8080`, `http://localhost:8080/mcp`, or `http://localhost:8000`) with live connection test verification.
+- **Scope & Multi-File Support**: Publish the entire workspace with full `!include` bundle preprocessing or the active file.
+- **Direct Workspace Navigation**: Once published, provides one-click direct links (`Open in Structurizr ↗`) to explore diagrams in the Structurizr UI.
+- **Authentication**: Optional API Key / Secret support for secured Structurizr On-Premises or Cloud instances (not required for local Playground and Lite).
+
 ---
 
 ## Verification & Testing

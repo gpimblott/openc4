@@ -15,6 +15,13 @@ export interface C4NodeData {
   shape?: string;
   stroke?: string;
   strokeWidth?: number;
+  border?: 'solid' | 'dashed' | 'dotted';
+  opacity?: number;
+  width?: number;
+  height?: number;
+  icon?: string;
+  badgeLabelOverride?: string;
+  perspectives?: Array<{ name: string; description?: string; value?: string }>;
 }
 
 const C4Node = ({ data, selected }: NodeProps) => {
@@ -41,6 +48,18 @@ const C4Node = ({ data, selected }: NodeProps) => {
     nodeData.strokeWidth !== undefined && nodeData.strokeWidth !== null ? nodeData.strokeWidth : 2;
 
   const renderIcon = () => {
+    if (nodeData.icon) {
+      return (
+        <img
+          src={nodeData.icon}
+          alt=""
+          className="w-4 h-4 object-contain inline-block"
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
     if (isPerson) return <User className="w-4 h-4 opacity-80" />;
     if (isDatabase) return <DbIcon className="w-4 h-4 opacity-80" />;
     if (isWeb) return <Globe className="w-4 h-4 opacity-80" />;
@@ -50,12 +69,21 @@ const C4Node = ({ data, selected }: NodeProps) => {
   };
 
   const getBadgeLabel = () => {
+    if (nodeData.badgeLabelOverride) {
+      return nodeData.technology
+        ? `${nodeData.badgeLabelOverride}: ${nodeData.technology}`
+        : nodeData.badgeLabelOverride;
+    }
     if (nodeData.type === 'person') return 'Person';
     if (nodeData.type === 'softwareSystem') return 'Software System';
     if (nodeData.type === 'container')
       return nodeData.technology ? `Container: ${nodeData.technology}` : 'Container';
     if (nodeData.type === 'component')
       return nodeData.technology ? `Component: ${nodeData.technology}` : 'Component';
+    if (nodeData.type === 'deploymentNode')
+      return nodeData.technology ? `Deployment Node: ${nodeData.technology}` : 'Deployment Node';
+    if (nodeData.type === 'infrastructureNode')
+      return nodeData.technology ? `Infrastructure Node: ${nodeData.technology}` : 'Infrastructure Node';
     return 'Element';
   };
 
@@ -67,10 +95,19 @@ const C4Node = ({ data, selected }: NodeProps) => {
   };
 
   const getContainerStyle = (): React.CSSProperties => {
+    const borderStyle = nodeData.border || 'solid';
+    const opacityVal =
+      nodeData.opacity !== undefined && nodeData.opacity !== null ? nodeData.opacity / 100 : undefined;
+    const widthVal = nodeData.width ? `${nodeData.width}px` : undefined;
+    const heightVal = nodeData.height ? `${nodeData.height}px` : undefined;
+
     if (isDatabase) {
       return {
         backgroundColor: 'transparent',
         color: fg,
+        opacity: opacityVal,
+        width: widthVal,
+        height: heightVal,
         filter: selected
           ? 'drop-shadow(0 0 10px rgba(34, 211, 238, 0.8))'
           : 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3))',
@@ -81,7 +118,10 @@ const C4Node = ({ data, selected }: NodeProps) => {
       color: fg,
       borderColor: strokeColor,
       borderWidth: `${strokeWidth}px`,
-      borderStyle: 'solid',
+      borderStyle,
+      opacity: opacityVal,
+      width: widthVal,
+      height: heightVal,
     };
   };
 
@@ -242,6 +282,20 @@ const C4Node = ({ data, selected }: NodeProps) => {
         {nodeData.description && (
           <div className="text-xs leading-relaxed opacity-85 italic mt-1 line-clamp-3">
             {nodeData.description}
+          </div>
+        )}
+
+        {nodeData.perspectives && nodeData.perspectives.length > 0 && (
+          <div className="flex flex-wrap gap-1 justify-center mt-2 pt-1.5 border-t border-white/10">
+            {nodeData.perspectives.map((p, pIdx) => (
+              <span
+                key={pIdx}
+                title={`${p.name}${p.value ? `: ${p.value}` : ''}${p.description ? ` (${p.description})` : ''}`}
+                className="text-[9px] px-1.5 py-0.5 rounded bg-black/25 text-white/90 border border-white/15"
+              >
+                {p.name}{p.value ? `: ${p.value}` : ''}
+              </span>
+            ))}
           </div>
         )}
       </div>
