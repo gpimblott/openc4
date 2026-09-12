@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenC4 — Open Source C4 Architecture as Code Platform</title>
-  <meta name="description" content="OpenC4 is an open-source C4 architecture modeling tool. Build, visualize, and govern software architectures with Structurizr DSL, sub-50ms React Flow rendering, multi-file drag-and-drop workspaces, CASL RBAC, and native AI Model Context Protocol (MCP).">
+  <meta name="description"
+    content="OpenC4 is an open-source C4 architecture modeling tool. Build, visualize, and govern software architectures with Structurizr DSL, sub-50ms React Flow rendering, multi-file drag-and-drop workspaces, CASL RBAC, and native AI Model Context Protocol (MCP).">
   <link rel="stylesheet" href="css/style.css?v=4">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
 </head>
+
 <body>
 
   <!-- Prototype Notice Banner -->
@@ -19,12 +22,16 @@
           Active Prototype
         </span>
         <span class="prototype-text">
-          <strong>Work in Progress:</strong> OpenC4 is an active prototype under rapid development. Features and APIs evolve frequently.
+          <strong>Work in Progress:</strong> OpenC4 is an active prototype under rapid development. Features and APIs
+          evolve frequently.
         </span>
       </div>
       <a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer" class="prototype-link">
         GitHub Repository
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
       </a>
     </div>
   </aside>
@@ -50,10 +57,25 @@
 
       <div class="nav-actions">
         <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Dark/Light Mode" title="Toggle Theme">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="12" y1="2" x2="12" y2="4"></line><line x1="12" y1="20" x2="12" y2="22"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="2" y1="12" x2="4" y2="12"></line><line x1="20" y1="12" x2="22" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <line x1="12" y1="2" x2="12" y2="4"></line>
+            <line x1="12" y1="20" x2="12" y2="22"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="2" y1="12" x2="4" y2="12"></line>
+            <line x1="20" y1="12" x2="22" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
         </button>
-        <a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        <a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer"
+          class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+          </svg>
           GitHub
         </a>
       </div>
@@ -75,16 +97,27 @@
           </h1>
 
           <p class="hero-subtitle">
-            OpenC4 is an open-source C4 architecture modeling platform. Model complex enterprise systems with Structurizr DSL, visualize diagrams with sub-50ms React Flow rendering, manage modular multi-file workspaces with drag-and-drop, enforce RBAC with CASL, and validate models via Model Context Protocol (MCP).
+            OpenC4 is an open-source C4 architecture modeling platform. Model complex enterprise systems with
+            Structurizr DSL, visualize diagrams with sub-50ms React Flow rendering, manage modular multi-file workspaces
+            with drag-and-drop, enforce RBAC with CASL, and validate models via Model Context Protocol (MCP).
           </p>
 
           <div class="hero-actions">
             <a href="#how-to-use" class="btn btn-primary">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+              </svg>
               Getting Started Guide
             </a>
-            <a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+            <a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer"
+              class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="10 8 16 12 10 16 10 8"></polygon>
+              </svg>
               View Repository
             </a>
           </div>
@@ -93,7 +126,8 @@
           <div class="hero-cmd-bar">
             <span class="hero-cmd-prompt">$</span>
             <code>./run.sh &nbsp;# Or: docker compose up --build</code>
-            <button class="copy-btn" data-copy-target="" onclick="navigator.clipboard.writeText('./run.sh')">Copy</button>
+            <button class="copy-btn" data-copy-target=""
+              onclick="navigator.clipboard.writeText('./run.sh')">Copy</button>
           </div>
         </div>
 
@@ -109,7 +143,8 @@
               <div class="window-url">http://localhost:8000 — OpenC4 Web Studio (Active Architecture Session)</div>
               <div style="width: 48px;"></div>
             </div>
-            <img src="assets/openc4-studio-screenshot.png" alt="OpenC4 Web Studio Live Application" class="screenshot-img" loading="eager" width="980" height="612">
+            <img src="assets/openc4-studio-screenshot.png" alt="OpenC4 Web Studio Live Application"
+              class="screenshot-img" loading="eager" width="980" height="612">
           </div>
         </div>
       </div>
@@ -122,7 +157,8 @@
           <div class="section-tag">Architecture Pipeline</div>
           <h2 class="section-title">How OpenC4 Works</h2>
           <p class="section-desc">
-            A unified lifecycle connecting code definitions, interactive visualization, automated quality audits, and universal diagram distribution.
+            A unified lifecycle connecting code definitions, interactive visualization, automated quality audits, and
+            universal diagram distribution.
           </p>
         </div>
 
@@ -131,7 +167,8 @@
             <div class="pipeline-step-num">STEP 01</div>
             <h3 class="pipeline-title">Model as Code</h3>
             <p class="pipeline-desc">
-              Define systems, containers, components, archetypes, and perspectives using standard Structurizr DSL across modular, decoupled files.
+              Define systems, containers, components, archetypes, and perspectives using standard Structurizr DSL across
+              modular, decoupled files.
             </p>
           </div>
 
@@ -139,7 +176,8 @@
             <div class="pipeline-step-num">STEP 02</div>
             <h3 class="pipeline-title">Interactive Studio</h3>
             <p class="pipeline-desc">
-              Edit in Monaco with sub-50ms React Flow canvas updates. Manage files with drag-and-drop and edit relationships visually.
+              Edit in Monaco with sub-50ms React Flow canvas updates. Manage files with drag-and-drop and edit
+              relationships visually.
             </p>
           </div>
 
@@ -147,7 +185,8 @@
             <div class="pipeline-step-num">STEP 03</div>
             <h3 class="pipeline-title">Automated Governance</h3>
             <p class="pipeline-desc">
-              Enforce structural rules with the built-in quality linter, derive implied relationships, and validate models via native MCP tools.
+              Enforce structural rules with the built-in quality linter, derive implied relationships, and validate
+              models via native MCP tools.
             </p>
           </div>
 
@@ -155,7 +194,8 @@
             <div class="pipeline-step-num">STEP 04</div>
             <h3 class="pipeline-title">Universal Sync & Export</h3>
             <p class="pipeline-desc">
-              Publish directly to Structurizr instances, automate CI/CD with <code>structurizr-cli</code>, and export to Mermaid for Git markdown.
+              Publish directly to Structurizr instances, automate CI/CD with <code>structurizr-cli</code>, and export to
+              Mermaid for Git markdown.
             </p>
           </div>
         </div>
@@ -169,7 +209,8 @@
           <div class="section-tag">Capabilities</div>
           <h2 class="section-title">Built for Modern Architecture Workflows</h2>
           <p class="section-desc">
-            Everything software architects and engineering teams need to model, govern, and share architecture without proprietary silos.
+            Everything software architects and engineering teams need to model, govern, and share architecture without
+            proprietary silos.
           </p>
         </div>
 
@@ -177,108 +218,175 @@
           <!-- Feature 1: Authentication & RBAC -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Authentication & RBAC</h3>
             <p class="feature-desc">
-              Zero-dependency authorization powered by <strong>CASL</strong>. Ships with three pre-seeded accounts (<code>admin</code>, <code>architect</code>, <code>viewer</code>), a 1-click quick role switcher in the studio navbar, and enterprise SSO provider interfaces (OIDC, SAML, LDAP).
+              Zero-dependency authorization powered by <strong>CASL</strong>. Ships with three pre-seeded accounts
+              (<code>admin</code>, <code>architect</code>, <code>viewer</code>), a 1-click quick role switcher in the
+              studio navbar, and enterprise SSO provider interfaces (OIDC, SAML, LDAP).
             </p>
           </div>
 
           <!-- Feature 2: Multi-File Explorer & Drag-and-Drop -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Multi-File Workspaces & Drag-and-Drop</h3>
             <p class="feature-desc">
-              Deconstruct monolithic models into modular files and directories using <code>!include &lt;file&gt;</code> and <code>!include &lt;dir/&gt;</code>. Drag files between folders with automatic <code>!include</code> AST refactoring, multi-tab state preservation, and 1-to-1 error line mapping.
+              Deconstruct monolithic models into modular files and directories using <code>!include &lt;file&gt;</code>
+              and <code>!include &lt;dir/&gt;</code>. Drag files between folders with automatic <code>!include</code>
+              AST refactoring, multi-tab state preservation, and 1-to-1 error line mapping.
             </p>
           </div>
 
           <!-- Feature 3: Structurizr DSL Phase 3 Features -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Structurizr DSL Phase 3 & Extended Styles</h3>
             <p class="feature-desc">
-              Support for <strong>Archetypes</strong> with inheritance, architectural <strong>Perspectives</strong> (Security, Performance, Cost), custom <strong>Terminology</strong> overrides rendered on badges, extended node styles (<code>border</code>, <code>opacity</code>, <code>icon</code>), and <strong>Themes</strong> (AWS, Azure, default).
+              Support for <strong>Archetypes</strong> with inheritance, architectural <strong>Perspectives</strong>
+              (Security, Performance, Cost), custom <strong>Terminology</strong> overrides rendered on badges, extended
+              node styles (<code>border</code>, <code>opacity</code>, <code>icon</code>), and <strong>Themes</strong>
+              (AWS, Azure, default).
             </p>
           </div>
 
           <!-- Feature 4: Implied Relationships Engine -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Implied Relationships Engine</h3>
             <p class="feature-desc">
-              Native support for <code>!impliedRelationships</code> directives with configurable strategies. Automatically infers and renders ancestor system-to-system connections when low-level container or component relationships are created.
+              Native support for <code>!impliedRelationships</code> directives with configurable strategies.
+              Automatically infers and renders ancestor system-to-system connections when low-level container or
+              component relationships are created.
             </p>
           </div>
 
           <!-- Feature 5: Interactive Canvas Relationship Editor -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Canvas Relationship Editor</h3>
             <p class="feature-desc">
-              Create, reconnect, reverse direction, or edit relationships directly on the React Flow canvas. Includes quick presets for common descriptions ("Uses", "Publishes to") and technologies (HTTPS, REST, gRPC, SQL) with instant bidirectional DSL sync.
+              Create, reconnect, reverse direction, or edit relationships directly on the React Flow canvas. Includes
+              quick presets for common descriptions ("Uses", "Publishes to") and technologies (HTTPS, REST, gRPC, SQL)
+              with instant bidirectional DSL sync.
             </p>
           </div>
 
           <!-- Feature 6: MCP Validation Tool -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                <rect x="9" y="9" width="6" height="6"></rect>
+                <line x1="9" y1="1" x2="9" y2="4"></line>
+                <line x1="15" y1="1" x2="15" y2="4"></line>
+                <line x1="9" y1="20" x2="9" y2="23"></line>
+                <line x1="15" y1="20" x2="15" y2="23"></line>
+                <line x1="20" y1="9" x2="23" y2="9"></line>
+                <line x1="20" y1="14" x2="23" y2="14"></line>
+                <line x1="1" y1="9" x2="4" y2="9"></line>
+                <line x1="1" y1="14" x2="4" y2="14"></line>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Local & Remote MCP Validation</h3>
             <p class="feature-desc">
-              Validate DSL architecture models against any running local or remote Structurizr MCP server. Web Studio provides endpoint testing, latency benchmarking, element counts, and pinpoint syntax error jumps directly to offending lines.
+              Validate DSL architecture models against any running local or remote Structurizr MCP server. Web Studio
+              provides endpoint testing, latency benchmarking, element counts, and pinpoint syntax error jumps directly
+              to offending lines.
             </p>
           </div>
 
           <!-- Feature 7: Direct Structurizr Publishing -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-new">New Feature</span>
             <h3 class="feature-title">Direct Structurizr Publishing & CLI</h3>
             <p class="feature-desc">
-              Publish workspaces directly to external Structurizr instances from the Web Studio via REST Web API or Structurizr MCP. Drop-in replacement for the Structurizr REST API allows seamless CI/CD push and pull via <code>structurizr-cli</code>.
+              Publish workspaces directly to external Structurizr instances from the Web Studio via REST Web API or
+              Structurizr MCP. Drop-in replacement for the Structurizr REST API allows seamless CI/CD push and pull via
+              <code>structurizr-cli</code>.
             </p>
           </div>
 
           <!-- Feature 8: Architecture Linter & Drawer -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-core">Core Engine</span>
             <h3 class="feature-title">Architecture Quality Linter & Drawer</h3>
             <p class="feature-desc">
-              Automated rule engine detects orphaned elements, missing descriptions, unassigned technologies, and conflicting implied relationships. Dedicated dual-tab inspection drawer displays quality findings and architectural perspectives.
+              Automated rule engine detects orphaned elements, missing descriptions, unassigned technologies, and
+              conflicting implied relationships. Dedicated dual-tab inspection drawer displays quality findings and
+              architectural perspectives.
             </p>
           </div>
 
           <!-- Feature 9: Multi-Format Export -->
           <div class="feature-card">
             <div class="feature-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="8 17 12 21 16 17"></polyline>
+                <line x1="12" y1="12" x2="12" y2="21"></line>
+                <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path>
+              </svg>
             </div>
             <span class="feature-tag-badge badge-core">Core Engine</span>
             <h3 class="feature-title">Mermaid & Multi-Format Export</h3>
             <p class="feature-desc">
-              One-click export of C4 views into standard Mermaid diagrams for GitHub READMEs, C4-PlantUML for legacy documentation pipelines, official Structurizr JSON, high-resolution SVG, PNG, and formatted Structurizr DSL.
+              One-click export of C4 views into standard Mermaid diagrams for GitHub READMEs, C4-PlantUML for legacy
+              documentation pipelines, official Structurizr JSON, high-resolution SVG, PNG, and formatted Structurizr
+              DSL.
             </p>
           </div>
         </div>
@@ -292,15 +400,18 @@
           <div class="section-tag">Documentation</div>
           <h2 class="section-title">Getting Started & User Guides</h2>
           <p class="section-desc">
-            Explore step-by-step guides for running OpenC4, modeling with Structurizr DSL, leveraging multi-file includes, and integrating with CI/CD.
+            Explore step-by-step guides for running OpenC4, modeling with Structurizr DSL, leveraging multi-file
+            includes, and integrating with CI/CD.
           </p>
         </div>
 
         <div class="guide-tabs-container">
           <nav class="guide-nav" aria-label="Guides Navigation">
-            <button class="guide-tab-btn active" data-tab="tab-quickstart" aria-selected="true">1. Quickstart & Accounts</button>
+            <button class="guide-tab-btn active" data-tab="tab-quickstart" aria-selected="true">1. Quickstart &
+              Accounts</button>
             <button class="guide-tab-btn" data-tab="tab-dsl" aria-selected="false">2. Structurizr DSL & Phase 3</button>
-            <button class="guide-tab-btn" data-tab="tab-multifile" aria-selected="false">3. Multi-File & Drag-and-Drop</button>
+            <button class="guide-tab-btn" data-tab="tab-multifile" aria-selected="false">3. Multi-File &
+              Drag-and-Drop</button>
             <button class="guide-tab-btn" data-tab="tab-rbac" aria-selected="false">4. Authentication & RBAC</button>
             <button class="guide-tab-btn" data-tab="tab-cli" aria-selected="false">5. CI/CD & CLI Integration</button>
             <button class="guide-tab-btn" data-tab="tab-mcp" aria-selected="false">6. AI & MCP Copilot</button>
@@ -313,12 +424,14 @@
               <div class="guide-card">
                 <h3 class="guide-heading">Running OpenC4 Locally</h3>
                 <p class="guide-lead">
-                  OpenC4 runs as a lightweight, unified TypeScript application (Hono API backend + React 19 frontend with Vite) backed by local SQLite persistence.
+                  OpenC4 runs as a lightweight, unified TypeScript application (Hono API backend + React 19 frontend
+                  with Vite) backed by local SQLite persistence.
                 </p>
 
                 <div class="guide-grid-2col">
                   <div>
-                    <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem;">Option A: Node.js & run.sh</h4>
+                    <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem;">Option A: Node.js & run.sh
+                    </h4>
                     <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
                       Clone the repository and launch the unified server:
                     </p>
@@ -349,9 +462,11 @@ cd openc4
                 </div>
 
                 <div style="margin-top: 2rem;">
-                  <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.75rem;">Pre-Seeded User Accounts</h4>
+                  <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.75rem;">
+                    Pre-Seeded User Accounts</h4>
                   <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                    Sign in to <a href="http://localhost:8000" target="_blank">http://localhost:8000</a> using any of the default accounts:
+                    Sign in to <a href="http://localhost:8000" target="_blank">http://localhost:8000</a> using any of
+                    the default accounts:
                   </p>
                   <div class="table-wrapper">
                     <table class="clean-table">
@@ -368,7 +483,8 @@ cd openc4
                           <td><code>admin</code></td>
                           <td><code>admin123</code></td>
                           <td><span class="badge-new">Admin</span></td>
-                          <td>Full platform control: manage workspaces, publish releases, administer users and roles.</td>
+                          <td>Full platform control: manage workspaces, publish releases, administer users and roles.
+                          </td>
                         </tr>
                         <tr>
                           <td><code>architect</code></td>
@@ -380,13 +496,15 @@ cd openc4
                           <td><code>viewer</code></td>
                           <td><code>viewer123</code></td>
                           <td><span>Viewer</span></td>
-                          <td>Read-only: navigate diagrams, inspect models, browse enterprise catalog, and view diffs.</td>
+                          <td>Read-only: navigate diagrams, inspect models, browse enterprise catalog, and view diffs.
+                          </td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                   <p style="font-size: 0.85rem; color: var(--text-muted);">
-                    <strong>Tip:</strong> Use the 1-click Quick Role Switcher by clicking your avatar in the studio navigation bar to test role permissions instantly.
+                    <strong>Tip:</strong> Use the 1-click Quick Role Switcher by clicking your avatar in the studio
+                    navigation bar to test role permissions instantly.
                   </p>
                 </div>
               </div>
@@ -397,7 +515,8 @@ cd openc4
               <div class="guide-card">
                 <h3 class="guide-heading">Structurizr DSL & Phase 3 Modeling</h3>
                 <p class="guide-lead">
-                  OpenC4 supports full Structurizr DSL syntax alongside advanced Phase 3 extensions: reusable Archetypes, architectural Perspectives, custom Terminology, and Filtered Views.
+                  OpenC4 supports full Structurizr DSL syntax alongside advanced Phase 3 extensions: reusable
+                  Archetypes, architectural Perspectives, custom Terminology, and Filtered Views.
                 </p>
 
                 <div class="code-box">
@@ -488,7 +607,8 @@ cd openc4
               <div class="guide-card">
                 <h3 class="guide-heading">Modular Multi-File Workspaces & Drag-and-Drop</h3>
                 <p class="guide-lead">
-                  Large architectures can be split into isolated domain files and subdirectories. Domain teams work on independent DSL files without merge conflicts.
+                  Large architectures can be split into isolated domain files and subdirectories. Domain teams work on
+                  independent DSL files without merge conflicts.
                 </p>
 
                 <div class="code-box">
@@ -514,13 +634,19 @@ cd openc4
                 </div>
 
                 <div style="margin-top: 1.5rem;">
-                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">Studio File Explorer Capabilities</h4>
+                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">
+                    Studio File Explorer Capabilities</h4>
                   <ul style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; padding-left: 1.25rem;">
-                    <li><strong>Directory Structure:</strong> Create nested directories (e.g. <code>systems/</code>, <code>people/</code>) without creating empty placeholder files.</li>
-                    <li><strong>Drag-and-Drop File Organization:</strong> Drag files directly into folder targets in the sidebar, or drop onto the root banner to move files back to the workspace root.</li>
-                    <li><strong>Automatic AST Refactoring:</strong> Moving files automatically rewrites corresponding <code>!include</code> paths in <code>workspace.dsl</code>.</li>
-                    <li><strong>Multi-Tab Monaco Editing:</strong> Switch between files seamlessly with dirty state indicators (<code>•</code>); unsaved in-memory edits are preserved.</li>
-                    <li><strong>1-to-1 Error Line Mapping:</strong> If an included file contains a syntax error, the compiler pinpoints the exact file and line, allowing one-click navigation to the issue.</li>
+                    <li><strong>Directory Structure:</strong> Create nested directories (e.g. <code>systems/</code>,
+                      <code>people/</code>) without creating empty placeholder files.</li>
+                    <li><strong>Drag-and-Drop File Organization:</strong> Drag files directly into folder targets in the
+                      sidebar, or drop onto the root banner to move files back to the workspace root.</li>
+                    <li><strong>Automatic AST Refactoring:</strong> Moving files automatically rewrites corresponding
+                      <code>!include</code> paths in <code>workspace.dsl</code>.</li>
+                    <li><strong>Multi-Tab Monaco Editing:</strong> Switch between files seamlessly with dirty state
+                      indicators (<code>•</code>); unsaved in-memory edits are preserved.</li>
+                    <li><strong>1-to-1 Error Line Mapping:</strong> If an included file contains a syntax error, the
+                      compiler pinpoints the exact file and line, allowing one-click navigation to the issue.</li>
                   </ul>
                 </div>
               </div>
@@ -531,7 +657,8 @@ cd openc4
               <div class="guide-card">
                 <h3 class="guide-heading">Authentication & Role-Based Access Control (RBAC)</h3>
                 <p class="guide-lead">
-                  OpenC4 implements isomorphic authorization using CASL, ensuring identical permission enforcement across backend API routes and frontend studio actions.
+                  OpenC4 implements isomorphic authorization using CASL, ensuring identical permission enforcement
+                  across backend API routes and frontend studio actions.
                 </p>
 
                 <div class="table-wrapper">
@@ -580,9 +707,13 @@ cd openc4
                 </div>
 
                 <div style="margin-top: 1.5rem;">
-                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">Enterprise SSO Provider Interface</h4>
+                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">
+                    Enterprise SSO Provider Interface</h4>
                   <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
-                    The auth subsystem supports pluggable identity providers. In addition to local SQLite user authentication with salted <code>scrypt</code> hashing, OpenC4 provides an extensible <code>EnterpriseOidcProvider</code> interface ready for Okta, Azure AD, Keycloak, or LDAP federation.
+                    The auth subsystem supports pluggable identity providers. In addition to local SQLite user
+                    authentication with salted <code>scrypt</code> hashing, OpenC4 provides an extensible
+                    <code>EnterpriseOidcProvider</code> interface ready for Okta, Azure AD, Keycloak, or LDAP
+                    federation.
                   </p>
                 </div>
               </div>
@@ -593,7 +724,8 @@ cd openc4
               <div class="guide-card">
                 <h3 class="guide-heading">Automating Architecture in CI/CD with structurizr-cli</h3>
                 <p class="guide-lead">
-                  OpenC4 implements the official Structurizr Web API specification. Point existing <code>structurizr-cli push</code> and <code>structurizr-cli pull</code> commands directly to OpenC4.
+                  OpenC4 implements the official Structurizr Web API specification. Point existing
+                  <code>structurizr-cli push</code> and <code>structurizr-cli pull</code> commands directly to OpenC4.
                 </p>
 
                 <div class="code-box">
@@ -629,7 +761,9 @@ jobs:
               <div class="guide-card">
                 <h3 class="guide-heading">Model Context Protocol (MCP) AI Integration</h3>
                 <p class="guide-lead">
-                  OpenC4 provides a built-in JSON-RPC MCP server at <code>POST /mcp</code> conforming to the Model Context Protocol. AI assistants (Claude Desktop, Cursor, Gemini, Antigravity) can inspect, lint, and query models programmatically.
+                  OpenC4 provides a built-in JSON-RPC MCP server at <code>POST /mcp</code> conforming to the Model
+                  Context Protocol. AI assistants (Claude Desktop, Cursor, Gemini, Antigravity) can inspect, lint, and
+                  query models programmatically.
                 </p>
 
                 <div class="code-box">
@@ -648,12 +782,17 @@ jobs:
                 </div>
 
                 <div style="margin-top: 1.5rem;">
-                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">Available MCP Tools</h4>
+                  <h4 style="font-size: 1rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.5rem;">
+                    Available MCP Tools</h4>
                   <ul style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; padding-left: 1.25rem;">
-                    <li><code>validate_dsl</code>: Validates DSL syntax and returns AST metrics or exact error locations.</li>
-                    <li><code>inspect_workspace</code>: Audits models for orphaned elements, missing descriptions, untyped containers, and implied conflicts.</li>
-                    <li><code>export_diagram</code>: Compiles and exports views into Mermaid, C4-PlantUML, or Structurizr JSON.</li>
-                    <li><code>query_model</code>: Searches systems, containers, components, and relationships programmatically.</li>
+                    <li><code>validate_dsl</code>: Validates DSL syntax and returns AST metrics or exact error
+                      locations.</li>
+                    <li><code>inspect_workspace</code>: Audits models for orphaned elements, missing descriptions,
+                      untyped containers, and implied conflicts.</li>
+                    <li><code>export_diagram</code>: Compiles and exports views into Mermaid, C4-PlantUML, or
+                      Structurizr JSON.</li>
+                    <li><code>query_model</code>: Searches systems, containers, components, and relationships
+                      programmatically.</li>
                   </ul>
                 </div>
               </div>
@@ -664,7 +803,8 @@ jobs:
               <div class="guide-card">
                 <h3 class="guide-heading">Exporting Mermaid for Markdown & Git Repositories</h3>
                 <p class="guide-lead">
-                  Export C4 diagrams into Mermaid markdown syntax with one click. Embed diagrams directly into GitHub/GitLab READMEs, PR descriptions, Notion pages, and static docs.
+                  Export C4 diagrams into Mermaid markdown syntax with one click. Embed diagrams directly into
+                  GitHub/GitLab READMEs, PR descriptions, Notion pages, and static docs.
                 </p>
 
                 <div class="code-box">
@@ -738,7 +878,7 @@ C4Context
               <tr>
                 <td><strong>Role-Based Access Control (RBAC)</strong></td>
                 <td><span class="badge-check">✓ CASL + Role Switcher</span></td>
-                <td><span class="badge-cross">✗ Primitive / Paid tier</span></td>
+                <td><span class="badge-cross">✗ Paid tier</span></td>
                 <td><span class="badge-cross">✗ File-level only</span></td>
                 <td><span class="badge-cross">✗ Git-level only</span></td>
               </tr>
@@ -752,7 +892,7 @@ C4Context
               <tr>
                 <td><strong>Native Model Context Protocol (MCP)</strong></td>
                 <td><span class="badge-check">✓ Built-in /mcp + Studio Validator</span></td>
-                <td><span class="badge-cross">✗ None</span></td>
+                <td><span class="badge-cross">✓ Built-in /mcp</span></td>
                 <td><span class="badge-cross">✗ None</span></td>
                 <td><span class="badge-cross">✗ None</span></td>
               </tr>
@@ -762,13 +902,6 @@ C4Context
                 <td><span class="badge-cross">✗ Text edit only</span></td>
                 <td><span class="badge-cross">✗ Visual only (no code)</span></td>
                 <td><span class="badge-cross">✗ Text edit only</span></td>
-              </tr>
-              <tr>
-                <td><strong>Architecture Quality Linter</strong></td>
-                <td><span class="badge-check">✓ Built-in + Drawer</span></td>
-                <td><span class="badge-cross">✗ Extra Java CLI utility</span></td>
-                <td><span class="badge-cross">✗ None</span></td>
-                <td><span class="badge-cross">✗ None</span></td>
               </tr>
             </tbody>
           </table>
@@ -788,42 +921,49 @@ C4Context
           <details class="faq-item" name="faq">
             <summary class="faq-question">What is OpenC4?</summary>
             <div class="faq-answer">
-              OpenC4 is an open-source C4 architecture modeling tool. It allows software architects, engineering leaders, and developers to model systems as code using the C4 model (Context, Container, Component, Deployment) and visualize them in real-time with an interactive web studio.
+              OpenC4 is an open-source C4 architecture modeling tool. It allows software architects, engineering
+              leaders, and developers to model systems as code using the C4 model (Context, Container, Component,
+              Deployment) and visualize them in real-time with an interactive web studio.
             </div>
           </details>
 
           <details class="faq-item" name="faq">
-            <summary class="faq-question">Can I use existing Structurizr DSL files and structurizr-cli pipelines?</summary>
+            <summary class="faq-question">Can I use existing Structurizr DSL files and structurizr-cli pipelines?
+            </summary>
             <div class="faq-answer">
-              Yes. OpenC4 provides full compatibility with the Structurizr DSL, Structurizr JSON schemas, and implements the official Structurizr Web API specification. You can point <code>structurizr-cli push</code> and <code>structurizr-cli pull</code> directly to OpenC4 without modifying your existing scripts.
+              Yes. OpenC4 provides full compatibility with the Structurizr DSL, Structurizr JSON schemas, and implements
+              the official Structurizr Web API specification. You can point <code>structurizr-cli push</code> and
+              <code>structurizr-cli pull</code> directly to OpenC4 without modifying your existing scripts.
             </div>
           </details>
 
           <details class="faq-item" name="faq">
             <summary class="faq-question">How does multi-file workspace support work with !include?</summary>
             <div class="faq-answer">
-              OpenC4 features a recursive preprocessor that resolves both individual file includes (<code>!include people.dsl</code>) and full directory includes (<code>!include systems/</code>). Moving files in the studio file explorer automatically refactors <code>!include</code> statements in <code>workspace.dsl</code>, and compiler diagnostics map errors directly to the source file and line.
-            </div>
-          </details>
-
-          <details class="faq-item" name="faq">
-            <summary class="faq-question">What DSL Phase 3 features are supported?</summary>
-            <div class="faq-answer">
-              OpenC4 supports Archetypes with inheritance and default properties, architectural Perspectives (Security, Compliance, Performance) on elements and relationships, custom Terminology overrides displayed on node badges, extended node styles (<code>border</code>, <code>opacity</code>, <code>icon</code>), and Structurizr Themes (AWS, Azure, default).
+              OpenC4 features a recursive preprocessor that resolves both individual file includes
+              (<code>!include people.dsl</code>) and full directory includes (<code>!include systems/</code>). Moving
+              files in the studio file explorer automatically refactors <code>!include</code> statements in
+              <code>workspace.dsl</code>, and compiler diagnostics map errors directly to the source file and line.
             </div>
           </details>
 
           <details class="faq-item" name="faq">
             <summary class="faq-question">How does OpenC4 integrate with AI models via MCP?</summary>
             <div class="faq-answer">
-              OpenC4 exposes a JSON-RPC Model Context Protocol (MCP) server at <code>POST /mcp</code>. AI agents such as Claude, Cursor, Gemini, and Antigravity can invoke tools to validate DSL syntax, audit model quality, query relationships, and export diagrams. The Web Studio also includes an in-browser MCP validation modal to test models against any local or remote MCP server.
+              OpenC4 exposes a JSON-RPC Model Context Protocol (MCP) server at <code>POST /mcp</code>. AI agents such as
+              Claude, Cursor, Gemini, and Antigravity can invoke tools to validate DSL syntax, audit model quality,
+              query relationships, and export diagrams. The Web Studio also includes an in-browser MCP validation modal
+              to test models against any local or remote MCP server.
             </div>
           </details>
 
           <details class="faq-item" name="faq">
             <summary class="faq-question">What license does OpenC4 use?</summary>
             <div class="faq-answer">
-              OpenC4 is 100% open-source software licensed under the permissive <a href="LICENSE" target="_blank" style="text-decoration: underline; color: var(--accent-primary);">MIT License</a>. You are free to use it for personal, commercial, or enterprise projects, integrate it into internal pipelines, and distribute it without restrictive constraints.
+              OpenC4 is 100% open-source software licensed under the permissive <a href="LICENSE" target="_blank"
+                style="text-decoration: underline; color: var(--accent-primary);">MIT License</a>. You are free to use
+              it for personal, commercial, or enterprise projects, integrate it into internal pipelines, and distribute
+              it without restrictive constraints.
             </div>
           </details>
         </div>
@@ -841,7 +981,8 @@ C4Context
             <span>OpenC4</span>
           </div>
           <p style="font-size: 0.88rem; color: var(--text-secondary); max-width: 320px;">
-            The modern, open-source C4 architecture platform. Built for agile software teams, enterprise architects, and AI-assisted engineering.
+            The modern, open-source C4 architecture platform. Built for agile software teams, enterprise architects, and
+            AI-assisted engineering.
           </p>
         </div>
 
@@ -869,21 +1010,28 @@ C4Context
         <div class="footer-col">
           <h4>Community</h4>
           <ul>
-            <li><a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
-            <li><a href="https://github.com/gpimblott/openc4/issues" target="_blank" rel="noopener noreferrer">Report an Issue</a></li>
-            <li><a href="https://github.com/gpimblott/openc4/discussions" target="_blank" rel="noopener noreferrer">Discussions</a></li>
+            <li><a href="https://github.com/gpimblott/openc4" target="_blank" rel="noopener noreferrer">GitHub
+                Repository</a></li>
+            <li><a href="https://github.com/gpimblott/openc4/issues" target="_blank" rel="noopener noreferrer">Report an
+                Issue</a></li>
+            <li><a href="https://github.com/gpimblott/openc4/discussions" target="_blank"
+                rel="noopener noreferrer">Discussions</a></li>
             <li><a href="LICENSE" target="_blank">MIT License</a></li>
           </ul>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <p>OpenC4 is open-source software released under the <a href="LICENSE" target="_blank" style="text-decoration: underline; color: var(--accent-primary);">MIT License</a>. Compatible with Structurizr DSL and Mermaid specifications.</p>
-        <p>Published via GitHub Pages at <a href="https://openc4.bitwrangler.uk" style="color: var(--accent-primary);">openc4.bitwrangler.uk</a></p>
+        <p>OpenC4 is open-source software released under the <a href="LICENSE" target="_blank"
+            style="text-decoration: underline; color: var(--accent-primary);">MIT License</a>. Compatible with
+          Structurizr DSL and Mermaid specifications.</p>
+        <p>Published via GitHub Pages at <a href="https://openc4.bitwrangler.uk"
+            style="color: var(--accent-primary);">openc4.bitwrangler.uk</a></p>
       </div>
     </div>
   </footer>
 
   <script src="js/main.js"></script>
 </body>
+
 </html>

@@ -563,6 +563,68 @@ system = softwareSystem "Valid System" {
     expect(data.workspaceName).toBe('MultiPublish');
   });
 
+  it('publishes to the designated active workspace without affecting other workspaces', async () => {
+    // 1. Create a second workspace
+    const createRes = await app.request('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Architecture Workspace 2',
+        description: 'Second workspace'
+      })
+    });
+    expect(createRes.status).toBe(200);
+    const createdWs = await createRes.json();
+    const wsId = createdWs.id;
+
+    // Verify workspace 1 name before publish
+    const ws1Before = await app.request('/api/workspace/1');
+    const ws1BeforeData = await ws1Before.json();
+    expect(ws1BeforeData.name).toBe('OpenC4');
+
+    // 2. Publish custom architecture to workspace wsId
+    const customDsl = `workspace "Custom Architecture" "Custom Description" {
+  model {
+    u = person "Engineer" "Maintains systems"
+    s = softwareSystem "Core System" "Handles telemetry"
+    u -> s "Observes"
+  }
+  views {
+    systemContext s "CoreContext" {
+      include *
+      autoLayout lr
+    }
+  }
+}`;
+
+    const publishRes = await app.request('/api/structurizr/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: 'http://localhost:8000',
+        workspaceId: wsId,
+        dsl: customDsl
+      })
+    });
+    expect(publishRes.status).toBe(200);
+    const pubData = await publishRes.json();
+    expect(pubData.success).toBe(true);
+    expect(pubData.workspaceId).toBe(wsId);
+    expect(pubData.workspaceName).toBe('Custom Architecture');
+
+    // 3. Verify workspace wsId in storage has been updated
+    const wsAfter = await app.request(`/api/workspaces/${wsId}/studio`);
+    expect(wsAfter.status).toBe(200);
+    const wsAfterData = await wsAfter.json();
+    expect(wsAfterData.workspace.name).toBe('Custom Architecture');
+    expect(wsAfterData.dsl).toContain('Core System');
+
+    // 4. Verify workspace 1 was untouched
+    const ws1After = await app.request('/api/workspace/1');
+    const ws1AfterData = await ws1After.json();
+    expect(ws1AfterData.name).toBe('OpenC4');
+  });
+
   it('compiles component view in multi-file workspace and preserves nested components and view metadata', async () => {
     const files = {
       'workspace.dsl': `workspace "OpenC4" {

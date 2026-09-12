@@ -98,7 +98,7 @@ export class StructurizrMCP {
     ];
   }
 
-  static executeTool(name: string, args: Record<string, any> = {}): Record<string, any> {
+  static executeTool(name: string, args: Record<string, any> = {}, repo?: any): Record<string, any> {
     const dsl = args.dsl || '';
 
     if (name === 'validate_dsl') {
@@ -190,6 +190,19 @@ export class StructurizrMCP {
       try {
         const ws = parseDsl(dsl);
         const wsId = Number(args.workspaceId) || 1;
+        if (repo) {
+          const existing = repo.getWorkspace(wsId);
+          if (existing) {
+            const json = workspaceToStructurizrJson(ws);
+            json.id = wsId;
+            repo.updateWorkspace(wsId, {
+              dslSource: dsl,
+              jsonCache: json,
+              name: ws.name || existing.name,
+              description: ws.description || existing.description
+            });
+          }
+        }
         return {
           success: true,
           workspaceId: wsId,

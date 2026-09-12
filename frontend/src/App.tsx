@@ -2281,6 +2281,8 @@ export function App() {
         files={files}
         entryPoint={entryPoint}
         activeFile={activeFile}
+        currentWorkspaceId={currentWorkspaceId}
+        currentWorkspaceName={workspaceInfo?.name}
       />
 
       <PublishVersionModal

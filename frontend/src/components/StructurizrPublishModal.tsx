@@ -13,7 +13,8 @@ import {
   Copy,
   Check,
   Key,
-  ShieldCheck
+  ShieldCheck,
+  Layers
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,6 +25,8 @@ export interface StructurizrPublishModalProps {
   files: Record<string, string>;
   entryPoint: string;
   activeFile: string;
+  currentWorkspaceId?: number | null;
+  currentWorkspaceName?: string | null;
 }
 
 export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = ({
@@ -32,7 +35,9 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
   dslCode,
   files,
   entryPoint,
-  activeFile
+  activeFile,
+  currentWorkspaceId,
+  currentWorkspaceName
 }) => {
   const { authFetch } = useAuth();
 
@@ -46,9 +51,19 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
   });
 
   const [workspaceId, setWorkspaceId] = useState<number>(() => {
+    if (currentWorkspaceId && currentWorkspaceId > 0) {
+      return currentWorkspaceId;
+    }
     const saved = localStorage.getItem('openc4_structurizr_ws_id');
     return saved ? parseInt(saved, 10) || 1 : 1;
   });
+
+  // Keep target workspaceId in sync with active OpenC4 workspace whenever modal opens or active workspace changes
+  useEffect(() => {
+    if (isOpen && currentWorkspaceId && currentWorkspaceId > 0) {
+      setWorkspaceId(currentWorkspaceId);
+    }
+  }, [isOpen, currentWorkspaceId]);
 
   const [mode, setMode] = useState<'auto' | 'rest' | 'mcp'>(() => {
     return (localStorage.getItem('openc4_structurizr_mode') as any) || 'auto';
@@ -163,6 +178,8 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
       const payload: Record<string, any> = {
         serverUrl,
         workspaceId,
+        currentWorkspaceId: currentWorkspaceId || undefined,
+        currentWorkspaceName: currentWorkspaceName || undefined,
         apiKey: apiKey.trim() || undefined,
         scope,
         mode,
@@ -211,7 +228,7 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
     } finally {
       setIsPublishing(false);
     }
-  }, [authFetch, serverUrl, workspaceId, apiKey, scope, mode, entryPoint, activeFile, files, dslCode]);
+  }, [authFetch, serverUrl, workspaceId, apiKey, scope, mode, entryPoint, activeFile, files, dslCode, currentWorkspaceId, currentWorkspaceName]);
 
   // Keyboard shortcut: Cmd/Ctrl + Enter to trigger publish
   useEffect(() => {
@@ -270,6 +287,26 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
           </button>
         </div>
 
+        {/* Active OpenC4 Workspace Banner */}
+        <div className="px-6 py-2.5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 font-medium">Active OpenC4 Model:</span>
+            <span className="font-bold text-white bg-purple-950/60 text-purple-200 border border-purple-800/60 px-2 py-0.5 rounded flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-purple-400" />
+              {currentWorkspaceName || `Workspace ${currentWorkspaceId || 1}`}
+            </span>
+            {currentWorkspaceId && (
+              <span className="font-mono text-slate-400 text-[11px]">
+                (OpenC4 ID: {currentWorkspaceId})
+              </span>
+            )}
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Targeting Structurizr Server</span>
+          </div>
+        </div>
+
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
           {/* Server Location Section */}
@@ -299,7 +336,10 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
                 <span className="text-slate-600">•</span>
                 <button
                   type="button"
-                  onClick={() => handleServerUrlChange('http://localhost:8000/mcp')}
+                  onClick={() => {
+                    handleServerUrlChange('http://localhost:8000/mcp');
+                    if (currentWorkspaceId) handleWorkspaceIdChange(currentWorkspaceId);
+                  }}
                   className="text-[11px] text-slate-400 hover:text-slate-200 underline font-medium cursor-pointer"
                 >
                   OpenC4 (:8000)
@@ -364,9 +404,20 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
           {/* Configuration Grid: Workspace ID & Mode */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">
-                Target Workspace ID
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-300">
+                  Target Workspace ID
+                </label>
+                {currentWorkspaceId && currentWorkspaceId !== workspaceId && (
+                  <button
+                    type="button"
+                    onClick={() => handleWorkspaceIdChange(currentWorkspaceId)}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 underline font-medium cursor-pointer"
+                  >
+                    Match OpenC4 ID ({currentWorkspaceId})
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
                 min="1"
@@ -374,8 +425,35 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
                 onChange={(e) => handleWorkspaceIdChange(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50"
               />
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span className="text-[10px] text-slate-500">Quick set:</span>
+                {currentWorkspaceId && (
+                  <button
+                    type="button"
+                    onClick={() => handleWorkspaceIdChange(currentWorkspaceId)}
+                    className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                      workspaceId === currentWorkspaceId
+                        ? 'bg-purple-900/50 border-purple-500/80 text-purple-200 font-bold'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    OpenC4 ID ({currentWorkspaceId})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleWorkspaceIdChange(1)}
+                  className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                    workspaceId === 1
+                      ? 'bg-purple-900/50 border-purple-500/80 text-purple-200 font-bold'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Lite / Playground (1)
+                </button>
+              </div>
               <span className="text-[10px] text-slate-500 mt-1 block">
-                Default is 1 for Structurizr Lite & Playground
+                Structurizr Lite requires ID 1. Structurizr on-premise or OpenC4 uses matching IDs.
               </span>
             </div>
 

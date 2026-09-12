@@ -376,7 +376,10 @@ export function createApp(
 
     try {
       const jsonData = await c.req.json();
-      repo.updateWorkspace(workspaceId, { jsonCache: jsonData });
+      const updates: any = { jsonCache: jsonData };
+      if (jsonData.name) updates.name = jsonData.name;
+      if (jsonData.description) updates.description = jsonData.description;
+      repo.updateWorkspace(workspaceId, updates);
       return c.json({ success: true, message: 'Workspace updated successfully' });
     } catch (err: any) {
       return c.json({ detail: `Invalid JSON payload: ${err.message}` }, 400);
@@ -1310,18 +1313,36 @@ export function createApp(
         const json = workspaceToStructurizrJson(parsed);
         json.id = workspaceId;
         const dur = Date.now() - start;
+        // Persist to local database if workspace exists in repository
+        const existingWs = repo.getWorkspace(workspaceId);
+        if (existingWs) {
+          repo.updateWorkspace(workspaceId, {
+            dslSource: dsl,
+            jsonCache: json,
+            name: parsed.name || existingWs.name,
+            description: parsed.description || existingWs.description
+          });
+          if (body.files && typeof body.files === 'object') {
+            for (const [filePath, content] of Object.entries(body.files)) {
+              if (typeof content === 'string') {
+                repo.upsertWorkspaceFile(workspaceId, filePath, content);
+              }
+            }
+          }
+        }
+
         publishResult = {
           success: true,
           serverUrl,
           mode: serverUrl.includes('/mcp') ? 'mcp' : 'rest',
           workspaceId,
           durationMs: dur,
-          workspaceName: parsed.name || `Workspace ${workspaceId}`,
+          workspaceName: parsed.name || existingWs?.name || `Workspace ${workspaceId}`,
           elementCount: parsed.model.people.length + parsed.model.softwareSystems.length,
           relationshipCount: parsed.model.relationships.length,
           viewCount: parsed.views.length,
           openUrl: `http://localhost:8000/api/workspace/${workspaceId}`,
-          raw: { message: 'Updated local in-memory workspace' }
+          raw: { message: 'Updated local workspace', workspaceId, updated: Boolean(existingWs) }
         };
       } catch (err: any) {
         if (err instanceof ParseError) {
@@ -1375,7 +1396,7 @@ export function createApp(
     } else if (method === 'tools/call') {
       const toolName = params.name;
       const toolArgs = params.arguments || {};
-      const result = StructurizrMCP.executeTool(toolName, toolArgs);
+      const result = StructurizrMCP.executeTool(toolName, toolArgs, repo);
       return c.json({
         jsonrpc: '2.0',
         id: reqId,
