@@ -580,7 +580,7 @@ system = softwareSystem "Valid System" {
     // Verify workspace 1 name before publish
     const ws1Before = await app.request('/api/workspace/1');
     const ws1BeforeData = await ws1Before.json();
-    expect(ws1BeforeData.name).toBe('OpenC4');
+    expect(ws1BeforeData.name).toBe('Big Bank plc');
 
     // 2. Publish custom architecture to workspace wsId
     const customDsl = `workspace "Custom Architecture" "Custom Description" {
@@ -622,7 +622,7 @@ system = softwareSystem "Valid System" {
     // 4. Verify workspace 1 was untouched
     const ws1After = await app.request('/api/workspace/1');
     const ws1AfterData = await ws1After.json();
-    expect(ws1AfterData.name).toBe('OpenC4');
+    expect(ws1AfterData.name).toBe('Big Bank plc');
   });
 
   it('compiles component view in multi-file workspace and preserves nested components and view metadata', async () => {

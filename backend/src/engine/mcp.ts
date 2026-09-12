@@ -201,6 +201,9 @@ export class StructurizrMCP {
               name: ws.name || existing.name,
               description: ws.description || existing.description
             });
+            if (typeof repo.saveWorkspaceFile === 'function') {
+              repo.saveWorkspaceFile(wsId, 'workspace.dsl', dsl, true);
+            }
           }
         }
         return {

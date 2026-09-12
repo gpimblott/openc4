@@ -1325,9 +1325,11 @@ export function createApp(
           if (body.files && typeof body.files === 'object') {
             for (const [filePath, content] of Object.entries(body.files)) {
               if (typeof content === 'string') {
-                repo.upsertWorkspaceFile(workspaceId, filePath, content);
+                repo.saveWorkspaceFile(workspaceId, filePath, content, filePath === (entryPoint || 'workspace.dsl'));
               }
             }
+          } else {
+            repo.saveWorkspaceFile(workspaceId, entryPoint || 'workspace.dsl', dsl, true);
           }
         }
 
