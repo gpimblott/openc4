@@ -61,22 +61,34 @@ export function getCandidateUrls(inputUrl: string): string[] {
   try {
     const parsed = new URL(clean);
     const pathname = parsed.pathname;
+    const candidates: string[] = [];
 
     // If no path or just root slash, prefer /mcp then root
     if (!pathname || pathname === '/') {
       const base = `${parsed.protocol}//${parsed.host}`;
-      return [`${base}/mcp`, base];
-    }
-
-    // If explicit path ending with /mcp
-    if (pathname.endsWith('/mcp')) {
+      candidates.push(`${base}/mcp`, base);
+    } else if (pathname.endsWith('/mcp')) {
+      // If explicit path ending with /mcp
       const base = `${parsed.protocol}//${parsed.host}`;
-      return [clean, base];
+      candidates.push(clean, base);
+    } else {
+      // If custom path provided, try it first, then try appending /mcp
+      const trimmed = clean.replace(/\/$/, '');
+      candidates.push(trimmed, `${trimmed}/mcp`);
     }
 
-    // If custom path provided, try it first, then try appending /mcp
-    const trimmed = clean.replace(/\/$/, '');
-    return [trimmed, `${trimmed}/mcp`];
+    if (parsed.host === 'localhost:8080' || parsed.host === '127.0.0.1:8080') {
+      candidates.push(
+        'http://structurizr:8080/mcp',
+        'http://structurizr:8080',
+        'http://structurizr-local:8080/mcp',
+        'http://structurizr-local:8080',
+        'http://host.docker.internal:8080/mcp',
+        'http://host.docker.internal:8080'
+      );
+    }
+
+    return Array.from(new Set(candidates));
   } catch {
     return [clean];
   }

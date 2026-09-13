@@ -5,6 +5,8 @@
  * 2. Structurizr MCP Server (JSON-RPC tools/call using 'updateWorkspace' / 'publish_workspace')
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseDsl, ParseError } from './parser.js';
 import { workspaceToStructurizrJson } from './compiler.js';
 import { testMcpConnection, getCandidateUrls } from './mcpClient.js';
@@ -72,16 +74,44 @@ export function getCleanBaseUrl(inputUrl: string): string {
 }
 
 /**
+ * Returns prioritized candidate base URLs for connecting to Structurizr.
+ * If inputUrl specifies localhost:8080 or 127.0.0.1:8080, and the backend is running
+ * in a containerized environment (e.g. Docker Compose), localhost:8080 will fail.
+ * We automatically include Docker network hostnames (structurizr, structurizr-local, host.docker.internal).
+ */
+export function getCandidateBaseUrls(inputUrl: string): string[] {
+  const base = getCleanBaseUrl(inputUrl);
+  const candidates: string[] = [base];
+
+  if (base.includes('localhost:8080') || base.includes('127.0.0.1:8080')) {
+    candidates.push(
+      base.replace(/localhost:8080|127\.0\.0\.1:8080/, 'structurizr:8080'),
+      base.replace(/localhost:8080|127\.0\.0\.1:8080/, 'structurizr-local:8080'),
+      base.replace(/localhost:8080|127\.0\.0\.1:8080/, 'host.docker.internal:8080')
+    );
+  }
+
+  if (process.env.STRUCTURIZR_URL) {
+    const envBase = getCleanBaseUrl(process.env.STRUCTURIZR_URL);
+    if (!candidates.includes(envBase)) {
+      candidates.unshift(envBase);
+    }
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+/**
  * Returns prioritized REST API candidate endpoints for a given base URL and workspace ID.
  */
 export function getRestCandidateEndpoints(inputUrl: string, workspaceId: number = 1): string[] {
-  const base = getCleanBaseUrl(inputUrl);
-  return [
-    `${base}/api/workspace/${workspaceId}`,
-    `${base}/workspace/${workspaceId}`,
-    `${base}/api/workspace`,
-    base
-  ];
+  const baseUrls = getCandidateBaseUrls(inputUrl);
+  const endpoints: string[] = [];
+  for (const b of baseUrls) {
+    endpoints.push(`${b}/api/workspace/${workspaceId}`);
+    endpoints.push(`${b}/workspace/${workspaceId}`);
+  }
+  return endpoints;
 }
 
 /**
@@ -227,6 +257,69 @@ export async function testStructurizrConnection(options: {
 }
 
 /**
+ * Normalizes containerInstance identifiers in DSL if '!identifiers hierarchical' is present,
+ * ensuring Structurizr Java parser can resolve container instances without throwing
+ * 'The container "x" does not exist'.
+ */
+export function normalizeDslForStructurizr(dsl: string, parsedWs: any): string {
+  if (!dsl) return dsl;
+
+  let normalized = dsl;
+
+  // 1. Missing space before quote on declarations (e.g. businessApplicationContainer"Business Application Containers")
+  normalized = normalized.replace(
+    /(container|component|softwareSystem|deploymentNode|person)\s+([a-zA-Z0-9_.]+)\s+([a-zA-Z0-9_]+)"/g,
+    '$1 $2 $3 "'
+  );
+
+  // 2. Fix systemLandscape view keys with spaces or special characters
+  // In Structurizr DSL: systemLandscape [key] [description] {
+  // If user wrote systemLandscape "Company ecosystem" {, Structurizr rejects because key has spaces.
+  normalized = normalized.replace(/systemLandscape\s+"([^"\n]+)"\s*\{/g, (_m, title) => {
+    const key = title.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `systemLandscape ${key} "${title}" {`;
+  });
+
+  // 3. Normalizes containerInstance identifiers in DSL if '!identifiers hierarchical' is present
+  if (normalized.includes('!identifiers hierarchical') && parsedWs?.model) {
+    const shortToHierarchical: Record<string, string> = {};
+    for (const sys of parsedWs.model.softwareSystems || []) {
+      const sysIdent = sys.identifier;
+      for (const cont of sys.containers || []) {
+        const contIdent = cont.identifier;
+        if (sysIdent && contIdent) {
+          shortToHierarchical[contIdent] = `${sysIdent}.${contIdent}`;
+        }
+      }
+    }
+
+    for (const [short, full] of Object.entries(shortToHierarchical)) {
+      const regex = new RegExp(`\\bcontainerInstance\\s+${short}\\b`, 'g');
+      normalized = normalized.replace(regex, `containerInstance ${full}`);
+    }
+  }
+
+  // 4. Upgrade autolayout statements with rank/node separation (300 300) so Graphviz doesn't collapse ranks
+  normalized = normalized.replace(/\bautolayout\s+(lr|rl|tb|bt)(?!\s+\d+)/gi, 'autolayout $1 300 300');
+  normalized = normalized.replace(/\bautolayout(?!\s+(?:lr|rl|tb|bt|\d+))/gi, 'autolayout tb 300 300');
+
+  // 5. Ensure views without autolayout get autolayout injected to prevent overlapping elements
+  normalized = normalized.replace(
+    /(\b(?:container|component|systemContext|systemLandscape|deployment)\b[^{]*\{)([\s\S]*?)(\})/gi,
+    (match, header, body, footer) => {
+      if (/autolayout/i.test(body)) {
+        return match;
+      }
+      const isTb = /deployment|component/i.test(header);
+      const defaultLayout = isTb ? 'autolayout tb 300 300' : 'autolayout lr 300 300';
+      return `${header}${body}            ${defaultLayout}\n        ${footer}`;
+    }
+  );
+
+  return normalized;
+}
+
+/**
  * Publishes DSL / Structurizr JSON to a Structurizr server or MCP instance.
  */
 export async function publishToStructurizr(
@@ -245,7 +338,9 @@ export async function publishToStructurizr(
   } = options;
 
   const base = getCleanBaseUrl(serverUrl);
-  const openUrl = `${base}/workspace/${workspaceId}`;
+  const openUrl = serverUrl.includes(':8000')
+    ? `${base}/?workspaceId=${workspaceId}`
+    : `${base}/workspace/${workspaceId}/diagrams`;
 
   // Step 1: Parse DSL to validate and extract metrics
   let parsedWs: any;
@@ -375,9 +470,6 @@ export async function publishToStructurizr(
     }
   }
 
-  // ==========================================================================
-  // Mode B: Structurizr Web API (HTTP REST PUT /api/workspace/{id})
-  // ==========================================================================
   const structurizrJson = workspaceToStructurizrJson(parsedWs);
   structurizrJson.id = workspaceId;
   structurizrJson.name = workspaceName;
@@ -387,15 +479,41 @@ export async function publishToStructurizr(
   structurizrJson.lastModifiedDate = new Date().toISOString();
   structurizrJson.lastModifiedAgent = 'openc4';
 
-  const bodyContent =
-    format === 'dsl' ? dsl : JSON.stringify(structurizrJson, null, 2);
-  const contentType =
-    format === 'dsl' ? 'text/plain; charset=UTF-8' : 'application/json; charset=UTF-8';
+  const effectiveDsl = normalizeDslForStructurizr(dsl, parsedWs);
+  structurizrJson.properties = structurizrJson.properties || {};
+  structurizrJson.properties['structurizr.dsl'] = Buffer.from(effectiveDsl, 'utf-8').toString('base64');
 
-  const endpoints = [
-    `${base}/api/workspace/${workspaceId}`,
-    `${base}/workspace/${workspaceId}`
+  // If local or volume-mounted structurizr directory exists, keep workspace.dsl in sync
+  // so Structurizr Lite immediately serves the formatted DSL
+  const possibleDirs = [
+    '/structurizr-data',
+    '/usr/local/structurizr',
+    './structurizr-data',
+    path.resolve(process.cwd(), 'structurizr-data'),
+    path.resolve(process.cwd(), '../structurizr-data')
   ];
+  if (effectiveDsl && effectiveDsl.trim().length > 0) {
+    for (const dir of possibleDirs) {
+      try {
+        if (fs.existsSync(dir)) {
+          fs.writeFileSync(path.join(dir, 'workspace.dsl'), effectiveDsl, 'utf-8');
+          break;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const bodyContent = JSON.stringify(structurizrJson, null, 2);
+  const contentType = 'application/json; charset=UTF-8';
+
+  const candidateBases = getCandidateBaseUrls(serverUrl);
+  const endpoints: string[] = [];
+  for (const b of candidateBases) {
+    endpoints.push(`${b}/api/workspace/${workspaceId}`);
+    endpoints.push(`${b}/workspace/${workspaceId}`);
+  }
 
   let lastRestError = 'Connection failed';
   for (const endpoint of endpoints) {
@@ -448,6 +566,19 @@ export async function publishToStructurizr(
       } else {
         const errText = await res.text().catch(() => '');
         lastRestError = `Server returned HTTP ${res.status}: ${res.statusText} ${errText ? `- ${errText.slice(0, 150)}` : ''}`.trim();
+
+        // If Structurizr Lite rejects with "Workspace ID must be 1", automatically retry targeting ID 1
+        if (
+          res.status === 400 &&
+          workspaceId !== 1 &&
+          (errText.includes('Workspace ID must be 1') || lastRestError.includes('Workspace ID must be 1'))
+        ) {
+          return await publishToStructurizr({
+            ...options,
+            workspaceId: 1
+          });
+        }
+
         if (res.status === 401 || res.status === 403 || res.status === 400) {
           return {
             success: false,

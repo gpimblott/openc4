@@ -9,3 +9,4 @@ backend/data/
 .DS_Store
 *.log
 test-files/
+structurizr-data/

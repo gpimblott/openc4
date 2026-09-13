@@ -8,6 +8,80 @@
 import { Workspace, View, Relationship, DeploymentNode } from './ast.js';
 import { resolveThemesSync } from './themes.js';
 
+function deploymentNodeToStructurizrJson(
+  node: DeploymentNode,
+  relsBySource: Record<string, any[]>
+): Record<string, any> {
+  const dJson: Record<string, any> = {
+    id: node.id,
+    name: node.name,
+    description: node.description || '',
+    technology: node.technology || '',
+    environment: node.environment || 'Default',
+    instances: typeof node.instances === 'number' ? node.instances : (parseInt(String(node.instances), 10) || 1),
+    tags: node.tags && node.tags.length > 0 ? node.tags.join(',') : 'Element,Deployment Node'
+  };
+
+  if (node.children && node.children.length > 0) {
+    dJson.children = node.children.map((child) => deploymentNodeToStructurizrJson(child, relsBySource));
+  }
+
+  if (node.typedContainerInstances && node.typedContainerInstances.length > 0) {
+    dJson.containerInstances = node.typedContainerInstances.map((ci) => {
+      const ciData: Record<string, any> = {
+        id: ci.id,
+        containerId: ci.containerId,
+        instanceId: ci.instanceId || 1,
+        environment: ci.environment || node.environment || 'Default',
+        tags: ci.tags && ci.tags.length > 0 ? ci.tags.join(',') : 'Element,Container Instance'
+      };
+      if (relsBySource[ci.id]) {
+        ciData.relationships = relsBySource[ci.id];
+      }
+      return ciData;
+    });
+  }
+
+  if (node.typedSoftwareSystemInstances && node.typedSoftwareSystemInstances.length > 0) {
+    dJson.softwareSystemInstances = node.typedSoftwareSystemInstances.map((si) => {
+      const siData: Record<string, any> = {
+        id: si.id,
+        softwareSystemId: si.softwareSystemId,
+        instanceId: si.instanceId || 1,
+        environment: si.environment || node.environment || 'Default',
+        tags: si.tags && si.tags.length > 0 ? si.tags.join(',') : 'Element,Software System Instance'
+      };
+      if (relsBySource[si.id]) {
+        siData.relationships = relsBySource[si.id];
+      }
+      return siData;
+    });
+  }
+
+  if (node.infrastructureNodes && node.infrastructureNodes.length > 0) {
+    dJson.infrastructureNodes = node.infrastructureNodes.map((infra) => {
+      const infData: Record<string, any> = {
+        id: infra.id,
+        name: infra.name,
+        description: infra.description || '',
+        technology: infra.technology || '',
+        environment: infra.environment || node.environment || 'Default',
+        tags: infra.tags && infra.tags.length > 0 ? infra.tags.join(',') : 'Element,Infrastructure Node'
+      };
+      if (relsBySource[infra.id]) {
+        infData.relationships = relsBySource[infra.id];
+      }
+      return infData;
+    });
+  }
+
+  if (relsBySource[node.id]) {
+    dJson.relationships = relsBySource[node.id];
+  }
+
+  return dJson;
+}
+
 export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
   // Build relationships lookup by source ID
   const relsBySource: Record<string, any[]> = {};
@@ -179,30 +253,73 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
       continue;
     }
 
+    let canvas: any = null;
+    try {
+      canvas = compileViewToCanvas(ws, v.key);
+    } catch {
+      // fallback
+    }
+
+    const elements = canvas && Array.isArray(canvas.nodes)
+      ? canvas.nodes.map((n: any) => ({
+          id: n.id,
+          x: Math.round(n.position?.x ?? 0),
+          y: Math.round(n.position?.y ?? 0)
+        }))
+      : v.includedElementIds
+          .filter((eid) => eid !== '*' && !eid.includes('->') && !eid.includes('==') && !eid.includes('!='))
+          .map((eid) => ({
+            id: eid,
+            x: v.layoutCoordinates[eid]?.x ?? 0,
+            y: v.layoutCoordinates[eid]?.y ?? 0
+          }));
+
+    const modelRelIds = new Set(ws.model.relationships.map((r) => r.id));
+    const seenRels = new Set<string>();
+    const relationships: Array<{ id: string }> = [];
+
+    if (canvas && Array.isArray(canvas.edges)) {
+      for (const e of canvas.edges) {
+        const relId = e.data?.relationshipId || e.data?.id || e.id.replace(/^edge_/, '');
+        if (modelRelIds.has(relId) && !seenRels.has(relId)) {
+          seenRels.add(relId);
+          relationships.push({ id: relId });
+        }
+      }
+    }
+
     const vData: Record<string, any> = {
       key: v.key,
       description: v.description,
       title: v.title,
-      elements: v.includedElementIds
-        .filter((eid) => eid !== '*' && !eid.includes('->') && !eid.includes('==') && !eid.includes('!='))
-        .map((eid) => ({
-          id: eid,
-          x: v.layoutCoordinates[eid]?.x ?? 0,
-          y: v.layoutCoordinates[eid]?.y ?? 0
-        })),
-      relationships: []
+      elements,
+      relationships
     };
 
-    if (v.autoLayout) {
-      const directionMap: Record<string, string> = {
-        tb: 'TopBottom',
-        lr: 'LeftRight',
-        bt: 'BottomTop',
-        rl: 'RightLeft'
-      };
+    const directionMap: Record<string, string> = {
+      tb: 'TopBottom',
+      lr: 'LeftRight',
+      bt: 'BottomTop',
+      rl: 'RightLeft'
+    };
+
+    const hasExplicitLayout = v.layoutCoordinates && Object.keys(v.layoutCoordinates).length > 0;
+
+    // Provide automaticLayout if specified in DSL or if no manual coordinates are saved
+    if (v.autoLayout || !hasExplicitLayout) {
+      const defaultDir =
+        v.viewType === 'deployment' || v.viewType === 'component' ? 'TopBottom' : 'LeftRight';
+      const rankDir = v.autoLayout
+        ? directionMap[v.autoLayout.toLowerCase()] || 'TopBottom'
+        : defaultDir;
+
       vData.automaticLayout = {
         implementation: 'Graphviz',
-        rankDirection: directionMap[v.autoLayout.toLowerCase()] || 'TopBottom'
+        rankDirection: rankDir,
+        rankSeparation: v.rankSeparation ?? 300,
+        nodeSeparation: v.nodeSeparation ?? 300,
+        edgeSeparation: 200,
+        vertices: false
       };
     }
 
@@ -270,7 +387,9 @@ export function workspaceToStructurizrJson(ws: Workspace): Record<string, any> {
     model: {
       people: peopleJson,
       softwareSystems: systemsJson,
-      deploymentNodes: [],
+      deploymentNodes: (ws.model.deploymentNodes || []).map((dn) =>
+        deploymentNodeToStructurizrJson(dn, relsBySource)
+      ),
       ...(ws.model.archetypes && (Object.keys(ws.model.archetypes.elements).length > 0 || Object.keys(ws.model.archetypes.relationships).length > 0)
         ? { archetypes: ws.model.archetypes }
         : ws.archetypes && (Object.keys(ws.archetypes.elements).length > 0 || Object.keys(ws.archetypes.relationships).length > 0)
@@ -1099,8 +1218,8 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   const nodes: any[] = [];
   let idx = 0;
   const cols = 3;
-  const spacingX = 320;
-  const spacingY = 220;
+  const spacingX = 480;
+  const spacingY = 320;
 
   for (const eid of visibleElementIds) {
     const elem = allElements[eid];

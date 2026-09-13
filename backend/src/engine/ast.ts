@@ -211,6 +211,8 @@ export interface View {
   includedElementIds: string[];
   excludedElementIds: string[];
   autoLayout?: string | null; // "tb", "lr", "bt", "rl", or null
+  rankSeparation?: number;
+  nodeSeparation?: number;
   properties: Record<string, string>;
   // Visual layout coordinates saved from UI: element_id -> {x, y}
   layoutCoordinates: Record<string, { x: number; y: number }>;

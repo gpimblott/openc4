@@ -2430,6 +2430,14 @@ export class Parser {
           this.pos += 1;
           const layoutArgs = this.parseStringArgs();
           view.autoLayout = layoutArgs.length > 0 ? layoutArgs[0].toLowerCase() : 'tb';
+          if (layoutArgs.length > 1) {
+            const rank = parseInt(layoutArgs[1], 10);
+            if (!isNaN(rank)) view.rankSeparation = rank;
+          }
+          if (layoutArgs.length > 2) {
+            const node = parseInt(layoutArgs[2], 10);
+            if (!isNaN(node)) view.nodeSeparation = node;
+          }
         } else if (vkw === 'title') {
           this.pos += 1;
           view.title = this.expectStringOrIdentifier();

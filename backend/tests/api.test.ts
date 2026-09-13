@@ -622,7 +622,7 @@ system = softwareSystem "Valid System" {
     // 4. Verify workspace 1 was untouched
     const ws1After = await app.request('/api/workspace/1');
     const ws1AfterData = await ws1After.json();
-    expect(ws1AfterData.name).toBe('Big Bank plc');
+    expect(ws1AfterData.name).toBe(ws1BeforeData.name);
   });
 
   it('compiles component view in multi-file workspace and preserves nested components and view metadata', async () => {

@@ -51,6 +51,9 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
   });
 
   const [workspaceId, setWorkspaceId] = useState<number>(() => {
+    if (serverUrl.includes(':8080')) {
+      return 1;
+    }
     if (currentWorkspaceId && currentWorkspaceId > 0) {
       return currentWorkspaceId;
     }
@@ -58,12 +61,16 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
     return saved ? parseInt(saved, 10) || 1 : 1;
   });
 
-  // Keep target workspaceId in sync with active OpenC4 workspace whenever modal opens or active workspace changes
+  // Keep target workspaceId in sync: for Structurizr Lite (:8080) default to 1, otherwise match OpenC4 workspace
   useEffect(() => {
-    if (isOpen && currentWorkspaceId && currentWorkspaceId > 0) {
-      setWorkspaceId(currentWorkspaceId);
+    if (isOpen) {
+      if (serverUrl.includes(':8080')) {
+        setWorkspaceId(1);
+      } else if (currentWorkspaceId && currentWorkspaceId > 0) {
+        setWorkspaceId(currentWorkspaceId);
+      }
     }
-  }, [isOpen, currentWorkspaceId]);
+  }, [isOpen, currentWorkspaceId, serverUrl]);
 
   const [mode, setMode] = useState<'auto' | 'rest' | 'mcp'>(() => {
     return (localStorage.getItem('openc4_structurizr_mode') as any) || 'auto';
@@ -120,6 +127,11 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
     setServerUrl(newUrl);
     localStorage.setItem('openc4_structurizr_url', newUrl);
     setConnectionStatus(null);
+    if (newUrl.includes(':8080')) {
+      setWorkspaceId(1);
+    } else if (currentWorkspaceId && currentWorkspaceId > 0) {
+      setWorkspaceId(currentWorkspaceId);
+    }
   };
 
   const handleWorkspaceIdChange = (newId: number) => {
@@ -303,7 +315,7 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
           </div>
           <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Targeting Structurizr Server</span>
+            <span>Targeting Structurizr Server (Workspace ID: {workspaceId})</span>
           </div>
         </div>
 
@@ -332,17 +344,6 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
                   className="text-[11px] text-slate-400 hover:text-slate-200 underline font-medium cursor-pointer"
                 >
                   MCP (:8080/mcp)
-                </button>
-                <span className="text-slate-600">•</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleServerUrlChange('http://localhost:8000/mcp');
-                    if (currentWorkspaceId) handleWorkspaceIdChange(currentWorkspaceId);
-                  }}
-                  className="text-[11px] text-slate-400 hover:text-slate-200 underline font-medium cursor-pointer"
-                >
-                  OpenC4 (:8000)
                 </button>
               </div>
             </div>
@@ -427,7 +428,18 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
               />
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                 <span className="text-[10px] text-slate-500">Quick set:</span>
-                {currentWorkspaceId && (
+                <button
+                  type="button"
+                  onClick={() => handleWorkspaceIdChange(1)}
+                  className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                    workspaceId === 1
+                      ? 'bg-purple-900/50 border-purple-500/80 text-purple-200 font-bold'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Lite / Local (1)
+                </button>
+                {currentWorkspaceId && currentWorkspaceId !== 1 && (
                   <button
                     type="button"
                     onClick={() => handleWorkspaceIdChange(currentWorkspaceId)}
@@ -440,20 +452,11 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
                     OpenC4 ID ({currentWorkspaceId})
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleWorkspaceIdChange(1)}
-                  className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${
-                    workspaceId === 1
-                      ? 'bg-purple-900/50 border-purple-500/80 text-purple-200 font-bold'
-                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Lite / Playground (1)
-                </button>
               </div>
               <span className="text-[10px] text-slate-500 mt-1 block">
-                Structurizr Lite requires ID 1. Structurizr on-premise or OpenC4 uses matching IDs.
+                {serverUrl.includes(':8080')
+                  ? 'Structurizr Lite only supports Workspace ID 1. Your active model will be published to Workspace 1.'
+                  : 'Structurizr Lite requires ID 1. Structurizr on-premise servers support any ID.'}
               </span>
             </div>
 
@@ -647,7 +650,11 @@ export const StructurizrPublishModal: React.FC<StructurizrPublishModalProps> = (
                         rel="noopener noreferrer"
                         className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-sm cursor-pointer"
                       >
-                        <span>Open in Structurizr</span>
+                        <span>
+                          {publishResult.serverUrl?.includes(':8000')
+                            ? 'Open in Visual Studio'
+                            : `Open Diagrams (ID: ${publishResult.workspaceId})`}
+                        </span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     )}

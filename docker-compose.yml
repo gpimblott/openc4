@@ -7,16 +7,20 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/data:/app/data
+      - ./structurizr-data:/structurizr-data
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=8000
       - HOST=0.0.0.0
+      - STRUCTURIZR_URL=http://structurizr:8080
 
   structurizr:
     image: structurizr/structurizr:latest
-    container_name: structurizr-playground
-    command: [ "playground" ]
+    container_name: structurizr-local
+    command: [ "local" ]
+    volumes:
+      - ./structurizr-data:/usr/local/structurizr
     ports:
       - "8080:8080"
     restart: unless-stopped
