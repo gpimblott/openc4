@@ -26,7 +26,7 @@ import { inspectWorkspace } from '../engine/inspection.js';
 import { diffWorkspaces } from '../engine/diff.js';
 import { StructurizrMCP } from '../engine/mcp.js';
 import { WorkspaceRepository } from '../storage/repository.js';
-import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl } from '../engine/modifier.js';
+import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl, addElementToDsl, addViewToDsl, includeElementInView } from '../engine/modifier.js';
 import { preprocessWorkspace, mapParseError } from '../engine/preprocessor.js';
 import { AuthService } from '../auth/service.js';
 import { requireAbility } from '../auth/middleware.js';
@@ -839,6 +839,206 @@ export function createApp(
         success: true,
         dsl: resultDsl,
         relationship: relObj,
+        canvas: canvasData,
+        findings
+      });
+    } catch (err: any) {
+      return c.json({
+        success: false,
+        detail: err.message
+      }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/elements', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    const dsl = body.dsl || '';
+    const viewKey = body.viewKey || null;
+
+    const ws = repo.getWorkspace(workspaceId);
+    const layoutCache = ws?.layoutCache || {};
+
+    try {
+      const type = body.type;
+      const name = body.name;
+      if (!type || !name) {
+        return c.json({ success: false, detail: 'Element type and name are required' }, 400);
+      }
+
+      const addResult = addElementToDsl(dsl, {
+        type,
+        name,
+        identifier: body.identifier,
+        description: body.description,
+        technology: body.technology,
+        tags: body.tags,
+        parentId: body.parentId,
+        location: body.location
+      });
+
+      let finalDsl = addResult.dsl;
+      let createdViewKey: string | null = null;
+
+      if (body.createDefaultView) {
+        if (type === 'softwareSystem') {
+          const viewRes = addViewToDsl(finalDsl, {
+            viewType: 'container',
+            targetId: addResult.identifier,
+            key: `Containers_${addResult.identifier}`,
+            title: `${name} Containers`,
+            description: `Container diagram for ${name}`,
+            autoLayout: 'tb'
+          });
+          finalDsl = viewRes.dsl;
+          createdViewKey = viewRes.viewKey;
+        } else if (type === 'container') {
+          const viewRes = addViewToDsl(finalDsl, {
+            viewType: 'component',
+            targetId: addResult.identifier,
+            key: `Components_${addResult.identifier}`,
+            title: `${name} Components`,
+            description: `Component diagram for ${name}`,
+            autoLayout: 'tb'
+          });
+          finalDsl = viewRes.dsl;
+          createdViewKey = viewRes.viewKey;
+        }
+      }
+
+      const parsed = parseDsl(finalDsl);
+
+      for (const v of parsed.views) {
+        if (layoutCache[v.key]) {
+          v.layoutCoordinates = layoutCache[v.key];
+        }
+      }
+
+      await resolveThemes(parsed);
+      const targetViewKey = createdViewKey || viewKey || (parsed.views[0]?.key ?? null);
+      const canvasData = compileViewToCanvas(parsed, targetViewKey);
+      const findings = inspectWorkspace(parsed);
+
+      return c.json({
+        success: true,
+        dsl: finalDsl,
+        element: addResult.element,
+        identifier: addResult.identifier,
+        createdViewKey,
+        canvas: canvasData,
+        findings
+      });
+    } catch (err: any) {
+      return c.json({
+        success: false,
+        detail: err.message
+      }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/views', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    const dsl = body.dsl || '';
+
+    const ws = repo.getWorkspace(workspaceId);
+    const layoutCache = ws?.layoutCache || {};
+
+    try {
+      const viewType = body.viewType;
+      const key = body.key;
+      if (!viewType) {
+        return c.json({ success: false, detail: 'View type is required' }, 400);
+      }
+
+      const addResult = addViewToDsl(dsl, {
+        viewType,
+        targetId: body.targetId,
+        key: key || `${viewType}_${Date.now()}`,
+        title: body.title,
+        description: body.description,
+        autoLayout: body.autoLayout || 'lr'
+      });
+
+      const parsed = parseDsl(addResult.dsl);
+
+      for (const v of parsed.views) {
+        if (layoutCache[v.key]) {
+          v.layoutCoordinates = layoutCache[v.key];
+        }
+      }
+
+      await resolveThemes(parsed);
+      const canvasData = compileViewToCanvas(parsed, addResult.viewKey);
+      const findings = inspectWorkspace(parsed);
+
+      return c.json({
+        success: true,
+        dsl: addResult.dsl,
+        viewKey: addResult.viewKey,
+        canvas: canvasData,
+        findings
+      });
+    } catch (err: any) {
+      return c.json({
+        success: false,
+        detail: err.message
+      }, 400);
+    }
+  });
+
+  app.post('/api/workspaces/:id/views/include-element', authMiddleware, requireAbility('update', 'Workspace'), async (c) => {
+    const workspaceId = parseInt(c.req.param('id')!, 10);
+    const body = await c.req.json().catch(() => ({}));
+    const dsl = body.dsl || '';
+    const viewKey = body.viewKey;
+    const elementIdentifier = body.elementIdentifier || body.elementId;
+    const position = body.position;
+
+    if (!viewKey || !elementIdentifier) {
+      return c.json({ success: false, detail: 'viewKey and elementIdentifier are required' }, 400);
+    }
+
+    const ws = repo.getWorkspace(workspaceId);
+    const layoutCache = ws?.layoutCache || {};
+
+    try {
+      const includeResult = includeElementInView(dsl, {
+        viewKey,
+        elementIdentifier,
+      });
+
+      const parsed = parseDsl(includeResult.dsl);
+
+      if (position && typeof position.x === 'number' && typeof position.y === 'number') {
+        if (!layoutCache[viewKey]) {
+          layoutCache[viewKey] = {};
+        }
+        const resolvedIdent = body.elementId || elementIdentifier;
+        layoutCache[viewKey][resolvedIdent] = {
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+        };
+        layoutCache[viewKey][elementIdentifier] = {
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+        };
+        repo.updateWorkspace(workspaceId, { layoutCache });
+      }
+
+      for (const v of parsed.views) {
+        if (layoutCache[v.key]) {
+          v.layoutCoordinates = layoutCache[v.key];
+        }
+      }
+
+      await resolveThemes(parsed);
+      const canvasData = compileViewToCanvas(parsed, viewKey);
+      const findings = inspectWorkspace(parsed);
+
+      return c.json({
+        success: true,
+        dsl: includeResult.dsl,
         canvas: canvasData,
         findings
       });

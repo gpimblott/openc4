@@ -72,14 +72,27 @@ export interface UserRecord {
   updatedAt: string;
 }
 
-export const DEFAULT_DB_PATH = path.resolve('data/structurizr.db');
+export function resolveDbPath(customPath?: string): string {
+  if (customPath) {
+    return path.resolve(customPath);
+  }
+  if (process.env.DATABASE_PATH) {
+    return path.resolve(process.env.DATABASE_PATH);
+  }
+  if (process.env.DB_PATH) {
+    return path.resolve(process.env.DB_PATH);
+  }
+  return path.resolve('data/openc4.db');
+}
+
+export const DEFAULT_DB_PATH = path.resolve('data/openc4.db');
 
 export class WorkspaceRepository {
   private dbPath: string;
   private db: DatabaseSync;
 
-  constructor(dbPath: string = DEFAULT_DB_PATH) {
-    this.dbPath = dbPath;
+  constructor(dbPath?: string) {
+    this.dbPath = resolveDbPath(dbPath);
     const parentDir = path.dirname(this.dbPath);
     if (!fs.existsSync(parentDir)) {
       fs.mkdirSync(parentDir, { recursive: true });
@@ -87,6 +100,14 @@ export class WorkspaceRepository {
     this.db = new DatabaseSync(this.dbPath);
     this.db.exec('PRAGMA busy_timeout = 5000;');
     this.initDb();
+  }
+
+  getDbPath(): string {
+    return this.dbPath;
+  }
+
+  close(): void {
+    this.db.close();
   }
 
   private initDb() {
@@ -261,6 +282,10 @@ export class WorkspaceRepository {
     stmt.run(newDsl, newJson, newLayout, newName, newDesc, newState, now, workspaceId);
 
     return this.getWorkspace(workspaceId);
+  }
+
+  updateLayoutCache(workspaceId: number, layoutCache: Record<string, any>): WorkspaceRecord | null {
+    return this.updateWorkspace(workspaceId, { layoutCache });
   }
 
   deleteWorkspace(workspaceId: number): boolean {

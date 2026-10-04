@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl } from '../src/engine/modifier.js';
+import { deleteFromDsl, addRelationshipToDsl, updateRelationshipInDsl, addElementToDsl, addViewToDsl, includeElementInView } from '../src/engine/modifier.js';
 import { parseDsl } from '../src/engine/parser.js';
+import { compileViewToCanvas } from '../src/engine/compiler.js';
 
 const SAMPLE_DSL = `workspace "Big Bank plc" "Internet Banking System architecture model" {
 
@@ -233,5 +234,200 @@ describe('updateRelationshipInDsl', () => {
       (r) => r.description === 'Executes SQL transactions on'
     );
     expect(updated?.technology).toBe('PostgreSQL Protocol');
+  });
+});
+
+describe('addElementToDsl', () => {
+  it('adds a person to DSL model', () => {
+    const result = addElementToDsl(SAMPLE_DSL, {
+      type: 'person',
+      name: 'Branch Manager',
+      description: 'Manages branch operations',
+      tags: 'Staff'
+    });
+
+    expect(result.identifier).toBe('branchManager');
+    expect(result.dsl).toContain('branchManager = person "Branch Manager" "Manages branch operations" "Staff"');
+    const parsed = parseDsl(result.dsl);
+    const addedPerson = parsed.model.people.find((p) => p.name === 'Branch Manager');
+    expect(addedPerson).toBeDefined();
+    expect(addedPerson?.identifier).toBe('branchManager');
+  });
+
+  it('adds a software system to DSL model', () => {
+    const result = addElementToDsl(SAMPLE_DSL, {
+      type: 'softwareSystem',
+      name: 'Notification Gateway',
+      description: 'Sends SMS and push alerts'
+    });
+
+    expect(result.identifier).toBe('notificationGateway');
+    expect(result.dsl).toContain('notificationGateway = softwareSystem "Notification Gateway" "Sends SMS and push alerts"');
+    const parsed = parseDsl(result.dsl);
+    const addedSys = parsed.model.softwareSystems.find((s) => s.name === 'Notification Gateway');
+    expect(addedSys).toBeDefined();
+  });
+
+  it('adds a container to a software system that already has child blocks', () => {
+    const result = addElementToDsl(SAMPLE_DSL, {
+      type: 'container',
+      name: 'Redis Cache',
+      parentId: 'internetBankingSystem',
+      description: 'In-memory session cache',
+      technology: 'Redis',
+      tags: 'Database'
+    });
+
+    expect(result.identifier).toBe('redisCache');
+    expect(result.dsl).toContain('redisCache = container "Redis Cache" "In-memory session cache" "Redis" "Database"');
+    const parsed = parseDsl(result.dsl);
+    const targetSys = parsed.model.softwareSystems.find((s) => s.identifier === 'internetBankingSystem');
+    const addedCont = targetSys?.containers.find((c) => c.name === 'Redis Cache');
+    expect(addedCont).toBeDefined();
+    expect(addedCont?.technology).toBe('Redis');
+  });
+
+  it('adds a container to a single-line software system (expands it to block)', () => {
+    const result = addElementToDsl(SAMPLE_DSL, {
+      type: 'container',
+      name: 'Core Ledger',
+      parentId: 'mainframeBankingSystem',
+      description: 'Mainframe accounts ledger',
+      technology: 'COBOL / CICS'
+    });
+
+    expect(result.identifier).toBe('coreLedger');
+    expect(result.dsl).toContain('mainframeBankingSystem = softwareSystem "Mainframe Banking System" "Stores core banking information about accounts and transactions." "Existing System" {');
+    expect(result.dsl).toContain('coreLedger = container "Core Ledger" "Mainframe accounts ledger" "COBOL / CICS"');
+    const parsed = parseDsl(result.dsl);
+    const targetSys = parsed.model.softwareSystems.find((s) => s.identifier === 'mainframeBankingSystem');
+    expect(targetSys?.containers.length).toBe(1);
+    expect(targetSys?.containers[0].name).toBe('Core Ledger');
+  });
+
+  it('adds a component to a container block', () => {
+    const result = addElementToDsl(SAMPLE_DSL, {
+      type: 'component',
+      name: 'Audit Logger',
+      parentId: 'apiApplication',
+      description: 'Logs sensitive user actions',
+      technology: 'TypeScript Service'
+    });
+
+    expect(result.identifier).toBe('auditLogger');
+    expect(result.dsl).toContain('auditLogger = component "Audit Logger" "Logs sensitive user actions" "TypeScript Service"');
+    const parsed = parseDsl(result.dsl);
+    const apiApp = parsed.model.softwareSystems[0].containers.find((c) => c.identifier === 'apiApplication');
+    expect(apiApp?.components.find((comp) => comp.name === 'Audit Logger')).toBeDefined();
+  });
+});
+
+describe('addViewToDsl', () => {
+  it('adds a container view for a software system', () => {
+    const result = addViewToDsl(SAMPLE_DSL, {
+      viewType: 'container',
+      targetId: 'mainframeBankingSystem',
+      key: 'MainframeContainers',
+      description: 'Containers within Mainframe system',
+      autoLayout: 'lr'
+    });
+
+    expect(result.viewKey).toBe('MainframeContainers');
+    expect(result.dsl).toContain('container mainframeBankingSystem "MainframeContainers" "Containers within Mainframe system"');
+    expect(result.dsl).toContain('autoLayout lr');
+    const parsed = parseDsl(result.dsl);
+    const addedView = parsed.views.find((v) => v.key === 'MainframeContainers');
+    expect(addedView).toBeDefined();
+    expect(addedView?.viewType).toBe('container');
+  });
+
+  it('adds a component view for a container', () => {
+    const result = addViewToDsl(SAMPLE_DSL, {
+      viewType: 'component',
+      targetId: 'apiApplication',
+      key: 'ApiAppDetails',
+      description: 'Component architecture of API Application',
+      autoLayout: 'tb'
+    });
+
+    expect(result.viewKey).toBe('ApiAppDetails');
+    expect(result.dsl).toContain('component apiApplication "ApiAppDetails" "Component architecture of API Application"');
+    const parsed = parseDsl(result.dsl);
+    const addedView = parsed.views.find((v) => v.key === 'ApiAppDetails');
+    expect(addedView).toBeDefined();
+    expect(addedView?.viewType).toBe('component');
+  });
+});
+
+describe('includeElementInView', () => {
+  it('adds an include statement for an element into an existing view', () => {
+    const result = includeElementInView(SAMPLE_DSL, {
+      viewKey: 'SystemContext',
+      elementIdentifier: 'emailSystem'
+    });
+
+    expect(result.dsl).toContain('include emailSystem');
+    const parsed = parseDsl(result.dsl);
+    const view = parsed.views.find((v) => v.key === 'SystemContext');
+    expect(view).toBeDefined();
+    expect(view?.includedElementIds.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('removes exclude statement when including an excluded element', () => {
+    const EXCLUDED_DSL = `workspace "Test" {
+    model {
+        user = person "User"
+        sys = softwareSystem "Sys"
+    }
+    views {
+        systemLandscape "Landscape" {
+            include *
+            exclude user
+        }
+    }
+}`;
+
+    const result = includeElementInView(EXCLUDED_DSL, {
+      viewKey: 'Landscape',
+      elementIdentifier: 'user'
+    });
+
+    expect(result.dsl).not.toContain('exclude user');
+    const parsed = parseDsl(result.dsl);
+    const view = parsed.views.find((v) => v.key === 'Landscape');
+    expect(view?.excludedElementIds.includes('user')).toBe(false);
+  });
+
+  it('ensures included unlinked element is compiled into canvas nodes even when view has include *', () => {
+    const UNLINKED_DSL = `workspace "Test" {
+    model {
+        user = person "User"
+        sysA = softwareSystem "System A"
+        sysB = softwareSystem "System B"
+    }
+    views {
+        systemContext sysA "ContextA" {
+            include *
+        }
+    }
+}`;
+
+    // Before include: ContextA only has sysA (user and sysB are not linked)
+    const initParsed = parseDsl(UNLINKED_DSL);
+    const initCanvas = compileViewToCanvas(initParsed, 'ContextA');
+    expect(initCanvas.nodes.map((n: any) => n.data.name)).toEqual(['System A']);
+
+    // Include sysB in ContextA
+    const res = includeElementInView(UNLINKED_DSL, {
+      viewKey: 'ContextA',
+      elementIdentifier: 'sysB'
+    });
+
+    expect(res.dsl).toContain('include sysB');
+    const updatedParsed = parseDsl(res.dsl);
+    const updatedCanvas = compileViewToCanvas(updatedParsed, 'ContextA');
+    const nodeNames = updatedCanvas.nodes.map((n: any) => n.data.name);
+    expect(nodeNames).toContain('System A');
+    expect(nodeNames).toContain('System B');
   });
 });

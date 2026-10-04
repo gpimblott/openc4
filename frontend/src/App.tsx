@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -36,7 +36,7 @@ import {
 
 import C4Node from './components/C4Node';
 import C4BoundaryNode from './components/C4BoundaryNode';
-import { getLayoutedElements, updateEdgesClosestHandles } from './utils/layout';
+import { getLayoutedElements, positionIncrementalNodes, updateEdgesClosestHandles } from './utils/layout';
 import { computeBoundaryNodes, type BoundaryInfo } from './utils/boundary';
 import { registerStructurizrDsl } from './utils/structurizrDsl';
 import { CatalogTab } from './components/CatalogTab';
@@ -63,6 +63,9 @@ import { WorkspaceMenu } from './components/WorkspaceMenu';
 import { ExportMenu } from './components/ExportMenu';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
+import { CanvasNodePalette, type PaletteElementType, type ModelElementSummary } from './components/CanvasNodePalette';
+import { QuickAddElementModal, type AddElementFormData } from './components/QuickAddElementModal';
+import { QuickAddViewModal, type AddViewFormData } from './components/QuickAddViewModal';
 import { Lock } from 'lucide-react';
 
 const nodeTypes = {
@@ -198,6 +201,16 @@ export function App() {
   const [restoreTargetVersion, setRestoreTargetVersion] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
+  // Quick Add Element & View states
+  const [isAddElementModalOpen, setIsAddElementModalOpen] = useState(false);
+  const [addElementType, setAddElementType] = useState<PaletteElementType>('softwareSystem');
+  const [isAddViewModalOpen, setIsAddViewModalOpen] = useState(false);
+  const [isAddingElement, setIsAddingElement] = useState(false);
+  const [isAddingView, setIsAddingView] = useState(false);
+  const [allModelElements, setAllModelElements] = useState<ModelElementSummary[]>([]);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+
   // Debounce ref for live auto-compilation
   const compileTimerRef = useRef<any>(null);
 
@@ -289,35 +302,64 @@ export function App() {
   }, [loadWorkspaces, user]);
 
   const boundariesRef = useRef<BoundaryInfo[]>([]);
+  const nodesRef = useRef<Node[]>([]);
+  const activeRenderedViewKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   const applyCanvasData = useCallback(
     (canvas: any, targetViewKey?: string) => {
       if (!canvas) return;
-      const rawNodes = canvas.nodes || [];
-      const rawEdges = canvas.edges || [];
+      const rawNodes: Node[] = canvas.nodes || [];
+      const rawEdges: Edge[] = canvas.edges || [];
       const boundaries = canvas.boundaries || (canvas.boundary ? [canvas.boundary] : []);
       boundariesRef.current = boundaries;
 
-      let allNodes: any[];
-      let updatedEdges: any[];
+      const newViewKey = targetViewKey || canvas.viewKey;
+      const isSameView = Boolean(activeRenderedViewKeyRef.current && newViewKey === activeRenderedViewKeyRef.current);
+      const dir = (canvas.autoLayout || 'tb').toUpperCase() === 'LR' ? 'LR' : 'TB';
 
-      if (canvas.hasLayout === false && rawNodes.length > 0) {
-        const dir = (canvas.autoLayout || 'tb').toUpperCase() === 'LR' ? 'LR' : 'TB';
+      let allNodes: Node[];
+      let updatedEdges: Edge[];
+
+      if (isSameView && nodesRef.current.length > 0) {
+        // Live-updating current view in editor: preserve existing node coordinates and position new elements cleanly
+        const result = positionIncrementalNodes(nodesRef.current, rawNodes, rawEdges, dir, boundaries);
+        allNodes = result.nodes;
+        updatedEdges = result.edges;
+      } else if (canvas.hasLayout === false && rawNodes.length > 0) {
+        // View has no saved or explicit layout: run auto-layout
         const layouted = getLayoutedElements(rawNodes, rawEdges, dir, boundaries);
         allNodes = layouted.nodes;
         updatedEdges = layouted.edges;
       } else {
-        const boundaryNodes = computeBoundaryNodes(rawNodes, boundaries);
-        allNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...rawNodes] : rawNodes;
-        updatedEdges = updateEdgesClosestHandles(allNodes, rawEdges);
+        // Loading saved view from storage: position any unplaced elements without colliding with placed ones
+        const placedSavedNodes = rawNodes.filter((n) => (n.data as any)?.hasExplicitPosition !== false);
+        const unplacedNodes = rawNodes.filter((n) => (n.data as any)?.hasExplicitPosition === false);
+        if (unplacedNodes.length > 0 && placedSavedNodes.length > 0) {
+          const result = positionIncrementalNodes(placedSavedNodes, rawNodes, rawEdges, dir, boundaries);
+          allNodes = result.nodes;
+          updatedEdges = result.edges;
+        } else {
+          const boundaryNodes = computeBoundaryNodes(rawNodes, boundaries);
+          allNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...rawNodes] : rawNodes;
+          updatedEdges = updateEdgesClosestHandles(allNodes, rawEdges);
+        }
       }
 
+      nodesRef.current = allNodes;
       setNodes(allNodes);
       setEdges(updatedEdges);
       setAvailableViews(canvas.availableViews || []);
       setTerminology(canvas.terminology);
-      if (targetViewKey || canvas.viewKey) {
-        setCurrentViewKey(targetViewKey || canvas.viewKey);
+      if (canvas.modelElements) {
+        setAllModelElements(canvas.modelElements);
+      }
+      if (newViewKey) {
+        setCurrentViewKey(newViewKey);
+        activeRenderedViewKeyRef.current = newViewKey;
       }
     },
     [setNodes, setEdges]
@@ -1203,6 +1245,352 @@ export function App() {
     requestDelete([], [edgeToDelete]);
   };
 
+  // Helper to extract systems for modal dropdowns
+  const getAvailableSystems = useCallback(() => {
+    const systems: Array<{ id: string; identifier: string; name: string }> = [];
+    const seen = new Set<string>();
+
+    nodes.forEach((n) => {
+      const d = n.data as any;
+      if (d?.type === 'softwareSystem') {
+        const id = n.id;
+        const ident = d.identifier || id;
+        const name = d.name || ident;
+        if (!seen.has(ident)) {
+          seen.add(ident);
+          systems.push({ id, identifier: ident, name });
+        }
+      }
+    });
+
+    const sysMatches = dslCode.matchAll(/([a-zA-Z0-9_]+)\s*=\s*softwareSystem\s+"([^"]+)"/g);
+    for (const m of sysMatches) {
+      const ident = m[1];
+      const name = m[2];
+      if (!seen.has(ident)) {
+        seen.add(ident);
+        systems.push({ id: ident, identifier: ident, name });
+      }
+    }
+
+    return systems;
+  }, [nodes, dslCode]);
+
+  // Helper to extract containers for modal dropdowns
+  const getAvailableContainers = useCallback(() => {
+    const containers: Array<{ id: string; identifier: string; name: string; systemId?: string }> = [];
+    const seen = new Set<string>();
+
+    nodes.forEach((n) => {
+      const d = n.data as any;
+      if (d?.type === 'container') {
+        const id = n.id;
+        const ident = d.identifier || id;
+        const name = d.name || ident;
+        if (!seen.has(ident)) {
+          seen.add(ident);
+          containers.push({ id, identifier: ident, name, systemId: d.systemId });
+        }
+      }
+    });
+
+    const contMatches = dslCode.matchAll(/([a-zA-Z0-9_]+)\s*=\s*container\s+"([^"]+)"/g);
+    for (const m of contMatches) {
+      const ident = m[1];
+      const name = m[2];
+      if (!seen.has(ident)) {
+        seen.add(ident);
+        containers.push({ id: ident, identifier: ident, name });
+      }
+    }
+
+    return containers;
+  }, [nodes, dslCode]);
+
+  // Elements defined in DSL model that are not currently visible on the active canvas view
+  const unplacedElements = useMemo(() => {
+    const canvasNodeIds = new Set<string>();
+    nodes.forEach((n) => {
+      if (n.type !== 'c4Boundary') {
+        canvasNodeIds.add(n.id);
+        const d = n.data as any;
+        if (d?.identifier) canvasNodeIds.add(d.identifier);
+        if (d?.name) canvasNodeIds.add(d.name);
+      }
+    });
+
+    return allModelElements.filter((elem) => {
+      return (
+        !canvasNodeIds.has(elem.id) &&
+        !canvasNodeIds.has(elem.identifier) &&
+        !canvasNodeIds.has(elem.name)
+      );
+    });
+  }, [allModelElements, nodes]);
+
+  // Include element onto canvas via drag-and-drop or 1-click
+  const handleIncludeElementOnCanvas = useCallback(
+    async (elem: ModelElementSummary, position?: { x: number; y: number }) => {
+      if (!canEdit || !currentWorkspaceId || !currentViewKey) return;
+      try {
+        const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/views/include-element`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dsl: dslCode,
+            viewKey: currentViewKey,
+            elementId: elem.id,
+            elementIdentifier: elem.identifier || elem.id,
+            position,
+          }),
+        });
+
+        const resData = await res.json();
+        if (resData.success) {
+          setDslCode(resData.dsl);
+          const currentActive = activeFileRef.current;
+          const updatedFiles = { ...filesRef.current, [currentActive]: resData.dsl };
+          filesRef.current = updatedFiles;
+          setFiles(updatedFiles);
+          setDirtyFiles((prev) => new Set(prev).add(currentActive));
+
+          setParseError(null);
+          if (resData.canvas) {
+            applyCanvasData(resData.canvas, currentViewKey);
+          }
+          setFindings(resData.findings || []);
+          setToast({
+            type: 'success',
+            message: `"${elem.name}" added to canvas`,
+          });
+        } else {
+          setToast({
+            type: 'error',
+            message: `Failed to add element to view: ${resData.detail || 'Unknown error'}`,
+          });
+        }
+      } catch (err: any) {
+        console.error('Include element error', err);
+        setToast({ type: 'error', message: `Error: ${err.message}` });
+      }
+    },
+    [canEdit, currentWorkspaceId, currentViewKey, dslCode, authFetch, applyCanvasData]
+  );
+
+  const onCanvasDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onCanvasDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      const raw = event.dataTransfer.getData('application/openc4-element');
+      if (!raw) return;
+
+      try {
+        const elem: ModelElementSummary = JSON.parse(raw);
+        let position = { x: 300, y: 300 };
+
+        if (reactFlowInstance?.screenToFlowPosition) {
+          position = reactFlowInstance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+        } else if (reactFlowWrapper.current) {
+          const bounds = reactFlowWrapper.current.getBoundingClientRect();
+          position = {
+            x: event.clientX - bounds.left,
+            y: event.clientY - bounds.top,
+          };
+        }
+
+        handleIncludeElementOnCanvas(elem, position);
+      } catch (err) {
+        console.error('Failed to parse dropped element', err);
+      }
+    },
+    [reactFlowInstance, handleIncludeElementOnCanvas]
+  );
+
+  // Open Quick Add Element modal with pre-selected type
+  const handleOpenAddElement = useCallback((type?: PaletteElementType) => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot add elements' });
+      return;
+    }
+    if (type) {
+      setAddElementType(type);
+    }
+    setIsAddElementModalOpen(true);
+  }, [canEdit]);
+
+  // Open Quick Add View modal
+  const handleOpenAddView = useCallback(() => {
+    if (!canEdit) {
+      setToast({ type: 'error', message: 'Read-only access: Cannot create views' });
+      return;
+    }
+    setIsAddViewModalOpen(true);
+  }, [canEdit]);
+
+  // Add Element to DSL & Canvas
+  const handleAddElement = async (formData: AddElementFormData) => {
+    if (!canEdit || !currentWorkspaceId) return;
+    setIsAddingElement(true);
+    try {
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/elements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dsl: dslCode,
+          viewKey: currentViewKey,
+          type: formData.type,
+          name: formData.name,
+          identifier: formData.identifier,
+          description: formData.description,
+          technology: formData.technology,
+          tags: formData.tags,
+          parentId: formData.parentId,
+          location: formData.location,
+          createDefaultView: formData.createDefaultView,
+        }),
+      });
+
+      const resData = await res.json();
+      if (resData.success) {
+        setDslCode(resData.dsl);
+        const currentActive = activeFileRef.current;
+        const updatedFiles = { ...filesRef.current, [currentActive]: resData.dsl };
+        filesRef.current = updatedFiles;
+        setFiles(updatedFiles);
+        setDirtyFiles((prev) => new Set(prev).add(currentActive));
+
+        setParseError(null);
+        const nextViewKey = resData.createdViewKey || currentViewKey;
+        if (resData.canvas) {
+          applyCanvasData(resData.canvas, nextViewKey);
+        }
+        if (resData.createdViewKey) {
+          setCurrentViewKey(resData.createdViewKey);
+        }
+        setFindings(resData.findings || []);
+        setIsAddElementModalOpen(false);
+        setToast({
+          type: 'success',
+          message: `Element "${formData.name}" added to DSL${resData.createdViewKey ? ' and view created' : ''}`,
+        });
+      } else {
+        setToast({
+          type: 'error',
+          message: `Failed to add element: ${resData.detail || 'Unknown error'}`,
+        });
+      }
+    } catch (err: any) {
+      console.error('Add element error', err);
+      setToast({ type: 'error', message: `Error: ${err.message}` });
+    } finally {
+      setIsAddingElement(false);
+    }
+  };
+
+  // Add View to DSL & Canvas
+  const handleAddView = async (formData: AddViewFormData) => {
+    if (!canEdit || !currentWorkspaceId) return;
+    setIsAddingView(true);
+    try {
+      const res = await authFetch(`/api/workspaces/${currentWorkspaceId}/views`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dsl: dslCode,
+          viewType: formData.viewType,
+          targetId: formData.targetId,
+          key: formData.key,
+          title: formData.title,
+          description: formData.description,
+          autoLayout: formData.autoLayout,
+        }),
+      });
+
+      const resData = await res.json();
+      if (resData.success) {
+        setDslCode(resData.dsl);
+        const currentActive = activeFileRef.current;
+        const updatedFiles = { ...filesRef.current, [currentActive]: resData.dsl };
+        filesRef.current = updatedFiles;
+        setFiles(updatedFiles);
+        setDirtyFiles((prev) => new Set(prev).add(currentActive));
+
+        setParseError(null);
+        if (resData.canvas) {
+          applyCanvasData(resData.canvas, resData.viewKey);
+        }
+        setCurrentViewKey(resData.viewKey);
+        setFindings(resData.findings || []);
+        setIsAddViewModalOpen(false);
+        setToast({
+          type: 'success',
+          message: `View "${resData.viewKey}" created in DSL`,
+        });
+      } else {
+        setToast({
+          type: 'error',
+          message: `Failed to create view: ${resData.detail || 'Unknown error'}`,
+        });
+      }
+    } catch (err: any) {
+      console.error('Add view error', err);
+      setToast({ type: 'error', message: `Error: ${err.message}` });
+    } finally {
+      setIsAddingView(false);
+    }
+  };
+
+  // Keyboard shortcuts for palette & quick add
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const tagName = activeEl?.tagName?.toLowerCase();
+      const isInput =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        (activeEl as HTMLElement)?.isContentEditable ||
+        activeEl?.closest('.monaco-editor');
+
+      if (isInput) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      if (key === 'e' || key === 'a') {
+        e.preventDefault();
+        handleOpenAddElement();
+      } else if (key === 'p') {
+        e.preventDefault();
+        handleOpenAddElement('person');
+      } else if (key === 's') {
+        e.preventDefault();
+        handleOpenAddElement('softwareSystem');
+      } else if (key === 'c') {
+        e.preventDefault();
+        handleOpenAddElement('container');
+      } else if (key === 'm') {
+        e.preventDefault();
+        handleOpenAddElement('component');
+      } else if (key === 'i') {
+        e.preventDefault();
+        handleOpenAddElement('infrastructureNode');
+      } else if (key === 'v') {
+        e.preventDefault();
+        handleOpenAddView();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canEdit, handleOpenAddElement, handleOpenAddView]);
+
   // Load Catalog data (latest component versions for current workspace)
   const loadCatalog = useCallback((wsId?: number) => {
     const targetWsId = wsId ?? currentWorkspaceId;
@@ -2030,6 +2418,9 @@ export function App() {
 
         {/* Right Pane: Interactive React Flow Canvas */}
         <div
+          ref={reactFlowWrapper}
+          onDragOver={onCanvasDragOver}
+          onDrop={onCanvasDrop}
           className={`flex-1 flex flex-col relative bg-[#0b1120] overflow-hidden ${
             focusMode === 'code' ? 'hidden' : 'flex'
           } ${focusMode === 'diagram' ? 'w-full' : 'min-w-[240px]'}`}
@@ -2172,6 +2563,7 @@ export function App() {
             connectionMode={ConnectionMode.Loose}
             edgesReconnectable={canEdit}
             reconnectRadius={20}
+            onInit={setReactFlowInstance}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onBeforeDelete={onBeforeDelete}
@@ -2204,8 +2596,19 @@ export function App() {
               position="bottom-center"
               className="text-[11px] text-slate-400 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 shadow-lg"
             >
-              Tip: Drag connector handles to create relationships • Drag edge ends to reconnect • Double-click System/Container to drill down
+              Tip: Drag unplaced elements from palette onto canvas • Drag connector handles to create relationships • Double-click to drill down
             </Panel>
+            {canEdit && (
+              <Panel position="top-right" className="!m-3 z-10">
+                <CanvasNodePalette
+                  onOpenAddElement={() => handleOpenAddElement()}
+                  onOpenAddView={handleOpenAddView}
+                  unplacedElements={unplacedElements}
+                  onIncludeElement={handleIncludeElementOnCanvas}
+                  canEdit={canEdit}
+                />
+              </Panel>
+            )}
           </ReactFlow>
         </div>
       </div>
@@ -2322,6 +2725,39 @@ export function App() {
       <UserManagementModal
         isOpen={isUserManagementOpen}
         onClose={() => setIsUserManagementOpen(false)}
+      />
+
+      {/* Quick Add Element Modal */}
+      <QuickAddElementModal
+        isOpen={isAddElementModalOpen}
+        onClose={() => setIsAddElementModalOpen(false)}
+        onAdd={handleAddElement}
+        isAdding={isAddingElement}
+        initialType={addElementType}
+        systems={getAvailableSystems()}
+        containers={getAvailableContainers()}
+        defaultParentId={(() => {
+          const currView = availableViews.find((v) => v.key === currentViewKey);
+          if (addElementType === 'container') {
+            return currView?.softwareSystemId;
+          }
+          if (addElementType === 'component') {
+            return currView?.containerId;
+          }
+          return undefined;
+        })()}
+      />
+
+      {/* Quick Add View Modal */}
+      <QuickAddViewModal
+        isOpen={isAddViewModalOpen}
+        onClose={() => setIsAddViewModalOpen(false)}
+        onAdd={handleAddView}
+        isAdding={isAddingView}
+        systems={getAvailableSystems()}
+        containers={getAvailableContainers()}
+        defaultSystemId={availableViews.find((v) => v.key === currentViewKey)?.softwareSystemId}
+        defaultContainerId={availableViews.find((v) => v.key === currentViewKey)?.containerId}
       />
 
       <Toast toast={toast} onClose={() => setToast(null)} />

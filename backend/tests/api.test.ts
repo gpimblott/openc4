@@ -6,7 +6,7 @@ import path from 'node:path';
 
 describe('API Endpoints', () => {
   let app: ReturnType<typeof createApp>;
-  const testDbPath = path.resolve('data/test_structurizr.db');
+  const testDbPath = path.resolve('data/test_openc4.db');
 
   beforeAll(() => {
     if (fs.existsSync(testDbPath)) {
@@ -731,6 +731,82 @@ system = softwareSystem "Valid System" {
       method: 'DELETE'
     });
     expect(deleteRes.status).toBe(200);
+  });
+
+  it('supports configurable database path via constructor and environment variables', async () => {
+    const { resolveDbPath, WorkspaceRepository, DEFAULT_DB_PATH } = await import('../src/storage/repository.js');
+
+    // 1. Explicit path in constructor
+    const customPath = path.resolve('data/test_custom_config.db');
+    if (fs.existsSync(customPath)) fs.unlinkSync(customPath);
+    const customRepo = new WorkspaceRepository(customPath);
+    expect(customRepo.getDbPath()).toBe(customPath);
+    customRepo.close();
+    if (fs.existsSync(customPath)) fs.unlinkSync(customPath);
+
+    // 2. Environment variable DATABASE_PATH
+    const prevEnv = process.env.DATABASE_PATH;
+    try {
+      process.env.DATABASE_PATH = 'data/test_from_env.db';
+      expect(resolveDbPath()).toBe(path.resolve('data/test_from_env.db'));
+      const envRepo = new WorkspaceRepository();
+      expect(envRepo.getDbPath()).toBe(path.resolve('data/test_from_env.db'));
+      envRepo.close();
+      if (fs.existsSync(path.resolve('data/test_from_env.db'))) {
+        fs.unlinkSync(path.resolve('data/test_from_env.db'));
+      }
+    } finally {
+      if (prevEnv !== undefined) {
+        process.env.DATABASE_PATH = prevEnv;
+      } else {
+        delete process.env.DATABASE_PATH;
+      }
+    }
+
+    // 3. Default path resolves to openc4.db
+    expect(DEFAULT_DB_PATH).toBe(path.resolve('data/openc4.db'));
+  });
+
+  it('creates elements via POST /api/workspaces/:id/elements and returns updated canvas', async () => {
+    const res = await app.request('/api/workspaces/1/elements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dsl: DEFAULT_SAMPLE_DSL,
+        type: 'container',
+        name: 'Payment Service Worker',
+        parentId: 'internetBankingSystem',
+        description: 'Background payment worker',
+        technology: 'Node.js',
+        viewKey: 'Containers'
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.dsl).toContain('paymentServiceWorker = container "Payment Service Worker" "Background payment worker" "Node.js"');
+    expect(data.canvas.nodes.some((n: any) => n.data.name === 'Payment Service Worker')).toBe(true);
+  });
+
+  it('creates views via POST /api/workspaces/:id/views and returns compiled canvas', async () => {
+    const res = await app.request('/api/workspaces/1/views', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dsl: DEFAULT_SAMPLE_DSL,
+        viewType: 'systemLandscape',
+        key: 'EnterpriseLandscape',
+        title: 'Enterprise System Landscape',
+        description: 'Overview of all systems',
+        autoLayout: 'lr'
+      })
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.dsl).toContain('systemLandscape "EnterpriseLandscape" "Overview of all systems"');
+    expect(data.viewKey).toBe('EnterpriseLandscape');
+    expect(data.canvas.viewKey).toBe('EnterpriseLandscape');
   });
 });
 

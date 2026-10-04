@@ -433,13 +433,17 @@ function evaluateInclusionExpressions(
 ): Set<string> {
   const result = new Set<string>();
   const findElem = (ref: string): any => {
-    if (allElements[ref]) return allElements[ref];
+    if (!ref) return null;
+    const clean = ref.trim().replace(/^["']|["']$/g, '');
+    if (allElements[clean]) return allElements[clean];
     return (
       Object.values(allElements).find(
         (e: any) =>
-          e.identifier === ref ||
-          e.name === ref ||
-          (e.identifier && e.identifier.toLowerCase() === ref.toLowerCase())
+          e.id === clean ||
+          e.identifier === clean ||
+          e.name === clean ||
+          (e.identifier && e.identifier.toLowerCase() === clean.toLowerCase()) ||
+          (e.name && e.name.toLowerCase() === clean.toLowerCase())
       ) || null
     );
   };
@@ -485,7 +489,7 @@ function evaluateInclusionExpressions(
         if (
           rel.destinationId === target ||
           rel.destinationIdentifier === target ||
-          (targetElem && rel.destinationId === targetElem.id)
+          (targetElem && (rel.destinationId === targetElem.id || rel.destinationIdentifier === targetElem.identifier))
         ) {
           result.add(rel.sourceId);
         }
@@ -502,7 +506,7 @@ function evaluateInclusionExpressions(
         if (
           rel.sourceId === source ||
           rel.sourceIdentifier === source ||
-          (sourceElem && rel.sourceId === sourceElem.id)
+          (sourceElem && (rel.sourceId === sourceElem.id || rel.sourceIdentifier === sourceElem.identifier))
         ) {
           result.add(rel.destinationId);
         }
@@ -539,13 +543,17 @@ function applyExclusionExpressions(
   relationships: Relationship[]
 ) {
   const findElem = (ref: string): any => {
-    if (allElements[ref]) return allElements[ref];
+    if (!ref) return null;
+    const clean = ref.trim().replace(/^["']|["']$/g, '');
+    if (allElements[clean]) return allElements[clean];
     return (
       Object.values(allElements).find(
         (e: any) =>
-          e.identifier === ref ||
-          e.name === ref ||
-          (e.identifier && e.identifier.toLowerCase() === ref.toLowerCase())
+          e.id === clean ||
+          e.identifier === clean ||
+          e.name === clean ||
+          (e.identifier && e.identifier.toLowerCase() === clean.toLowerCase()) ||
+          (e.name && e.name.toLowerCase() === clean.toLowerCase())
       ) || null
     );
   };
@@ -969,15 +977,17 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
 
   // Determine visible elements: include / exclude expressions
   let visibleElementIds = new Set<string>();
-  if (!effectiveBaseView || effectiveBaseView.includeAll || effectiveBaseView.includedElementIds.length === 0) {
+  if (!effectiveBaseView || (effectiveBaseView.includedElementIds.length === 0 && !effectiveBaseView.includeAll)) {
     visibleElementIds = new Set<string>(naturalScopeIds);
-  } else {
+  } else if (effectiveBaseView.includedElementIds.length > 0) {
     visibleElementIds = evaluateInclusionExpressions(
       effectiveBaseView.includedElementIds,
       allElements,
       ws.model.relationships,
       naturalScopeIds
     );
+  } else {
+    visibleElementIds = new Set<string>(naturalScopeIds);
   }
 
   // If dynamic view, always ensure participating dynamic steps are visible
@@ -1217,9 +1227,24 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
   // Generate React Flow nodes
   const nodes: any[] = [];
   let idx = 0;
+  let unplacedCount = 0;
   const cols = 3;
   const spacingX = 480;
   const spacingY = 320;
+
+  const savedCoords: Record<string, { x: number; y: number }> = {
+    ...(effectiveBaseView?.layoutCoordinates || {}),
+    ...(view?.layoutCoordinates || {})
+  };
+
+  let maxSavedX = 0;
+  let hasAnySavedPos = false;
+  for (const pos of Object.values(savedCoords)) {
+    if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+      hasAnySavedPos = true;
+      if (pos.x > maxSavedX) maxSavedX = pos.x;
+    }
+  }
 
   for (const eid of visibleElementIds) {
     const elem = allElements[eid];
@@ -1296,10 +1321,27 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
       }
     }
 
-    const savedPos = view?.layoutCoordinates?.[eid] || effectiveBaseView?.layoutCoordinates?.[eid];
-    const col = idx % cols;
-    const row = Math.floor(idx / cols);
-    const position = savedPos ? { x: savedPos.x, y: savedPos.y } : { x: 50 + col * spacingX, y: 50 + row * spacingY };
+    const savedPos =
+      view?.layoutCoordinates?.[eid] ||
+      effectiveBaseView?.layoutCoordinates?.[eid] ||
+      (elem.identifier && (view?.layoutCoordinates?.[elem.identifier] || effectiveBaseView?.layoutCoordinates?.[elem.identifier])) ||
+      (elem.name && (view?.layoutCoordinates?.[elem.name] || effectiveBaseView?.layoutCoordinates?.[elem.name]));
+    let position: { x: number; y: number };
+    if (savedPos) {
+      position = { x: savedPos.x, y: savedPos.y };
+    } else if (hasAnySavedPos) {
+      const uCol = unplacedCount % cols;
+      const uRow = Math.floor(unplacedCount / cols);
+      position = {
+        x: maxSavedX + 350 + uCol * spacingX,
+        y: 50 + uRow * spacingY
+      };
+      unplacedCount++;
+    } else {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      position = { x: 50 + col * spacingX, y: 50 + row * spacingY };
+    }
 
     nodes.push({
       id: eid,
@@ -1325,6 +1367,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
         height,
         icon,
         badgeLabelOverride,
+        hasExplicitPosition: Boolean(savedPos),
         perspectives: elem.perspectives || [],
         tags: elem.tags,
         group: elem.group || null,
@@ -1597,6 +1640,79 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     }
   }
 
+  // Collect all elements defined in model for drag-and-drop onto views
+  const modelElements: Array<{
+    id: string;
+    identifier: string;
+    name: string;
+    type: 'person' | 'softwareSystem' | 'container' | 'component' | 'infrastructureNode';
+    description?: string;
+    technology?: string;
+    parentId?: string;
+    tags?: string[];
+  }> = [];
+
+  for (const p of ws.model.people) {
+    modelElements.push({
+      id: p.id,
+      identifier: p.identifier || p.id,
+      name: p.name,
+      type: 'person',
+      description: p.description,
+      tags: p.tags,
+    });
+  }
+
+  for (const s of ws.model.softwareSystems) {
+    modelElements.push({
+      id: s.id,
+      identifier: s.identifier || s.id,
+      name: s.name,
+      type: 'softwareSystem',
+      description: s.description,
+      tags: s.tags,
+    });
+    for (const c of s.containers) {
+      modelElements.push({
+        id: c.id,
+        identifier: c.identifier || c.id,
+        name: c.name,
+        type: 'container',
+        description: c.description,
+        technology: c.technology,
+        parentId: s.identifier || s.id,
+        tags: c.tags,
+      });
+      for (const comp of c.components) {
+        modelElements.push({
+          id: comp.id,
+          identifier: comp.identifier || comp.id,
+          name: comp.name,
+          type: 'component',
+          description: comp.description,
+          technology: comp.technology,
+          parentId: c.identifier || c.id,
+          tags: comp.tags,
+        });
+      }
+    }
+  }
+
+  for (const dn of ws.model.deploymentNodes || []) {
+    for (const infra of dn.infrastructureNodes || []) {
+      modelElements.push({
+        id: infra.id,
+        identifier: infra.identifier || infra.id,
+        name: infra.name,
+        type: 'infrastructureNode',
+        description: infra.description,
+        technology: infra.technology,
+        parentId: dn.identifier || dn.id,
+        tags: infra.tags,
+      });
+    }
+  }
+
   return {
     viewKey: view ? view.key : 'Default',
     viewType: view ? view.viewType : 'systemContext',
@@ -1608,6 +1724,7 @@ export function compileViewToCanvas(ws: Workspace, viewKey?: string | null): Rec
     boundaries,
     nodes,
     edges,
+    modelElements,
     hasLayout: Boolean((view && Object.keys(view.layoutCoordinates || {}).length > 0) || (effectiveBaseView && Object.keys(effectiveBaseView.layoutCoordinates || {}).length > 0)),
     terminology: ws.terminology,
     availableViews: ws.views.map((v) => ({

@@ -427,5 +427,50 @@ describe('Structurizr DSL Phase 1 & Phase 2 Features', () => {
       expect(names2).not.toContain('Partner');
       expect(names2).not.toContain('External SaaS');
     });
+
+    it('positions newly added elements away from elements with saved layout coordinates', () => {
+      const dsl = `
+      workspace {
+        model {
+          u = person "User"
+          s = softwareSystem "Core System"
+          s2 = softwareSystem "New System"
+          u -> s "Uses"
+          s -> s2 "Calls"
+        }
+        views {
+          systemContext s "CoreContext" {
+            include *
+          }
+        }
+      }
+      `;
+      const ws = parseDsl(dsl);
+      const view = ws.views.find((v) => v.key === 'CoreContext')!;
+      const userElem = ws.model.people.find((p) => p.name === 'User')!;
+      const coreElem = ws.model.softwareSystems.find((s) => s.name === 'Core System')!;
+      const newElem = ws.model.softwareSystems.find((s) => s.name === 'New System')!;
+
+      // Simulate existing saved coordinates for user and core system
+      view.layoutCoordinates = {
+        [userElem.id]: { x: 100, y: 100 },
+        [coreElem.id]: { x: 400, y: 100 },
+      };
+
+      const canvas = compileViewToCanvas(ws, 'CoreContext');
+      const userNode = canvas.nodes.find((n: any) => n.id === userElem.id);
+      const coreNode = canvas.nodes.find((n: any) => n.id === coreElem.id);
+      const newNode = canvas.nodes.find((n: any) => n.id === newElem.id);
+
+      expect(userNode.position).toEqual({ x: 100, y: 100 });
+      expect(userNode.data.hasExplicitPosition).toBe(true);
+
+      expect(coreNode.position).toEqual({ x: 400, y: 100 });
+      expect(coreNode.data.hasExplicitPosition).toBe(true);
+
+      // New node should be flagged as not having explicit position and placed beyond max saved X
+      expect(newNode.data.hasExplicitPosition).toBe(false);
+      expect(newNode.position.x).toBeGreaterThanOrEqual(400 + 350);
+    });
   });
 });

@@ -473,3 +473,223 @@ export const getLayoutedElements = (
 
   return { nodes: layoutedNodes, edges: layoutedEdges };
 };
+
+/**
+ * Positions incoming view nodes by preserving current node coordinates for existing elements
+ * and finding clean, collision-free locations for newly added elements.
+ */
+export const positionIncrementalNodes = (
+  currentPlacedNodes: Node[],
+  incomingNodes: Node[],
+  edges: Edge[],
+  direction: 'TB' | 'LR' = 'TB',
+  boundaries?: BoundaryInfo[] | null
+): { nodes: Node[]; edges: Edge[] } => {
+  const incomingNonBoundary = incomingNodes.filter((n) => n.type !== 'c4Boundary');
+  if (incomingNonBoundary.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const currentMap = new Map<string, Node>(
+    currentPlacedNodes.filter((n) => n.type !== 'c4Boundary').map((n) => [n.id, n])
+  );
+
+  // If no existing placed nodes match incoming nodes, run full auto-layout
+  const matchingExistingCount = incomingNonBoundary.filter((n) => currentMap.has(n.id)).length;
+  if (matchingExistingCount === 0) {
+    return getLayoutedElements(incomingNodes, edges, direction, boundaries);
+  }
+
+  const isHorizontal = direction === 'LR';
+  const placedList: Node[] = [];
+  const unplacedList: Node[] = [];
+
+  for (const node of incomingNonBoundary) {
+    const existing = currentMap.get(node.id);
+    if (existing) {
+      placedList.push({
+        ...node,
+        position: { ...existing.position },
+      });
+    } else {
+      unplacedList.push(node);
+    }
+  }
+
+  if (unplacedList.length === 0) {
+    const bNodes = computeBoundaryNodes(placedList, boundaries);
+    const allNodes = bNodes.length > 0 ? [...bNodes, ...placedList] : placedList;
+    return { nodes: allNodes, edges: updateEdgesClosestHandles(allNodes, edges) };
+  }
+
+  const minGap = 50;
+
+  const isColliding = (x: number, y: number, w: number, h: number, currentList: Node[]): boolean => {
+    const boundaryNodes = computeBoundaryNodes(currentList, boundaries);
+    const obstacles: Array<{ x: number; y: number; w: number; h: number }> = [
+      ...currentList.map((n) => ({
+        x: n.position.x,
+        y: n.position.y,
+        w: n.measured?.width ?? (n.width as number) ?? DEFAULT_NODE_WIDTH,
+        h: n.measured?.height ?? (n.height as number) ?? DEFAULT_NODE_HEIGHT,
+      })),
+      ...boundaryNodes.map((bn) => ({
+        x: bn.position.x,
+        y: bn.position.y,
+        w: (bn.style?.width as number) || DEFAULT_NODE_WIDTH,
+        h: (bn.style?.height as number) || DEFAULT_NODE_HEIGHT,
+      })),
+    ];
+
+    for (const obs of obstacles) {
+      const overlapX = Math.min(x + w, obs.x + obs.w) - Math.max(x, obs.x);
+      const overlapY = Math.min(y + h, obs.y + obs.h) - Math.max(y, obs.y);
+      if (overlapX > -minGap && overlapY > -minGap) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Build connection lookups for fast neighbor resolution
+  const outgoingNeighbors = new Map<string, string[]>();
+  const incomingNeighbors = new Map<string, string[]>();
+
+  for (const edge of edges) {
+    if (!outgoingNeighbors.has(edge.source)) outgoingNeighbors.set(edge.source, []);
+    outgoingNeighbors.get(edge.source)!.push(edge.target);
+
+    if (!incomingNeighbors.has(edge.target)) incomingNeighbors.set(edge.target, []);
+    incomingNeighbors.get(edge.target)!.push(edge.source);
+  }
+
+  // Boundary sibling map
+  const boundaryMap = new Map<string, BoundaryInfo>((boundaries || []).map((b) => [b.id, b]));
+  const nodeToBoundary = new Map<string, string>();
+  (boundaries || []).forEach((b) => {
+    b.childIds.forEach((cid) => nodeToBoundary.set(cid, b.id));
+  });
+
+  for (const unplaced of unplacedList) {
+    const w = unplaced.measured?.width ?? (unplaced.width as number) ?? DEFAULT_NODE_WIDTH;
+    const h = unplaced.measured?.height ?? (unplaced.height as number) ?? DEFAULT_NODE_HEIGHT;
+
+    // Calculate current bounds of all placed items
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const p of placedList) {
+      const pw = p.measured?.width ?? (p.width as number) ?? DEFAULT_NODE_WIDTH;
+      const ph = p.measured?.height ?? (p.height as number) ?? DEFAULT_NODE_HEIGHT;
+      if (p.position.x < minX) minX = p.position.x;
+      if (p.position.y < minY) minY = p.position.y;
+      if (p.position.x + pw > maxX) maxX = p.position.x + pw;
+      if (p.position.y + ph > maxY) maxY = p.position.y + ph;
+    }
+
+    if (minX === Infinity) {
+      minX = 50;
+      minY = 50;
+      maxX = 300;
+      maxY = 200;
+    }
+
+    let candX = 50;
+    let candY = 50;
+    let foundStrategy = false;
+
+    // Strategy 1: Check for sibling nodes in the same boundary
+    const bId = nodeToBoundary.get(unplaced.id);
+    if (bId) {
+      const bInfo = boundaryMap.get(bId);
+      const placedSiblings = placedList.filter((p) => bInfo?.childIds.includes(p.id));
+      if (placedSiblings.length > 0) {
+        const lastSib = placedSiblings[placedSiblings.length - 1];
+        const lastW = lastSib.measured?.width ?? (lastSib.width as number) ?? DEFAULT_NODE_WIDTH;
+        const lastH = lastSib.measured?.height ?? (lastSib.height as number) ?? DEFAULT_NODE_HEIGHT;
+        if (isHorizontal) {
+          candX = lastSib.position.x;
+          candY = lastSib.position.y + lastH + 60;
+        } else {
+          candX = lastSib.position.x + lastW + 60;
+          candY = lastSib.position.y;
+        }
+        foundStrategy = true;
+      }
+    }
+
+    // Strategy 2: Place downstream/upstream of connected nodes
+    if (!foundStrategy) {
+      const sourceOfUnplaced = (incomingNeighbors.get(unplaced.id) || [])
+        .map((srcId) => placedList.find((p) => p.id === srcId))
+        .filter((p): p is Node => p !== undefined);
+
+      const targetOfUnplaced = (outgoingNeighbors.get(unplaced.id) || [])
+        .map((tgtId) => placedList.find((p) => p.id === tgtId))
+        .filter((p): p is Node => p !== undefined);
+
+      if (sourceOfUnplaced.length > 0) {
+        const src = sourceOfUnplaced[0];
+        const srcW = src.measured?.width ?? (src.width as number) ?? DEFAULT_NODE_WIDTH;
+        const srcH = src.measured?.height ?? (src.height as number) ?? DEFAULT_NODE_HEIGHT;
+        candX = isHorizontal ? src.position.x + srcW + 120 : src.position.x;
+        candY = isHorizontal ? src.position.y : src.position.y + srcH + 100;
+        foundStrategy = true;
+      } else if (targetOfUnplaced.length > 0) {
+        const tgt = targetOfUnplaced[0];
+        candX = isHorizontal ? Math.max(50, tgt.position.x - w - 120) : tgt.position.x;
+        candY = isHorizontal ? tgt.position.y : Math.max(50, tgt.position.y - h - 100);
+        foundStrategy = true;
+      }
+    }
+
+    // Strategy 3: Place neatly at the end of the diagram
+    if (!foundStrategy) {
+      if (isHorizontal) {
+        candX = maxX + 100;
+        candY = minY;
+      } else {
+        candX = minX;
+        candY = maxY + 100;
+      }
+    }
+
+    // Collision resolution loop: shift until a clear spot is found
+    let attempts = 0;
+    const stepX = w + 60;
+    const stepY = h + 60;
+
+    while (isColliding(candX, candY, w, h, placedList) && attempts < 100) {
+      attempts++;
+      if (isHorizontal) {
+        candY += stepY;
+        if (candY > maxY + 300) {
+          candY = minY;
+          candX += stepX;
+        }
+      } else {
+        candX += stepX;
+        if (candX > maxX + 400) {
+          candX = minX;
+          candY += stepY;
+        }
+      }
+    }
+
+    placedList.push({
+      ...unplaced,
+      position: { x: Math.max(50, Math.round(candX)), y: Math.max(50, Math.round(candY)) },
+    });
+  }
+
+  // Resolve residual collisions with boundaries and normalize
+  const finalNodes = resolveBoundaryAndNodeCollisions(placedList, boundaries, direction);
+  const boundaryNodes = computeBoundaryNodes(finalNodes, boundaries);
+  const layoutedNodes = boundaryNodes.length > 0 ? [...boundaryNodes, ...finalNodes] : finalNodes;
+  const layoutedEdges = updateEdgesClosestHandles(layoutedNodes, edges);
+
+  return { nodes: layoutedNodes, edges: layoutedEdges };
+};
+
